@@ -1,0 +1,13 @@
+# Environment variables — never commit tokens
+.env
+.env.*
+!.env.example
+
+# Netlify local dev
+.netlify/
+
+# macOS
+.DS_Store
+
+# Node (if you ever add dependencies)
+node_modules/
