@@ -198,8 +198,10 @@ const SEED_DATA = [
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
 const parseR = v => { if (v == null) return null; if (typeof v === "number") return v; const m = String(v).match(/^(\d)/); return m ? parseInt(m[1]) : null; };
 const avgR = arr => { const v = arr.map(parseR).filter(x => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
-const isOver = d => d && new Date(d) < new Date();
-const isWeek = d => { if (!d) return false; const n = new Date(), e = new Date(n); e.setDate(e.getDate() + (7 - e.getDay())); return new Date(d) <= e && new Date(d) >= n; };
+const todayStr = () => new Date().toISOString().split('T')[0];
+const isOver = d => !!d && d < todayStr();
+const isWeek = d => { if (!d) return false; const t = todayStr(); const e = new Date(); e.setDate(e.getDate() + (7 - e.getDay())); const eStr = e.toISOString().split('T')[0]; return d >= t && d <= eStr; };
+const isDue = d => !!d && (isWeek(d) || isOver(d));
 
 const PILL_STYLES = {
   "Belinda": { bg: "rgba(133,135,85,0.15)", color: "#505530" },
@@ -259,14 +261,20 @@ const ActionPill = ({ action }) => {
 function normName(s) { return (s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
 
 function computeDiscrepancies(notionData, platformData) {
-  if (!platformData || !notionData) return { themes: [], subthemes: [], indicators: [] };
+  if (!platformData || !notionData) return { themes: [], subthemes: [], indicators: [], questions: [] };
+  // Themes/Sub-themes/Indicators have a direct Vertical select; questions only get it via a rollup that often returns null.
+  // For structured items: require REFLECT or BOTH. For questions: exclude only explicit C4C so null-vertical questions aren't silently dropped.
+  const inScope  = r => r.vertical === 'REFLECT' || r.vertical === 'BOTH';
+  const inScopeQ = r => r.vertical !== 'C4C';
   const backendThemes     = new Set(platformData.themes.map(t => normName(t.name)));
   const backendSubthemes  = new Set(platformData.themes.flatMap(t => (t.subthemes || []).map(s => normName(s.name))));
   const backendIndicators = new Set(platformData.themes.flatMap(t => (t.subthemes || []).flatMap(s => (s.indicators || []).map(i => normName(i.name)))));
+  const backendQuestions  = new Set(platformData.themes.flatMap(t => (t.subthemes || []).flatMap(s => (s.questions || []).map(q => normName(q.text)))));
   return {
-    themes:     notionData.filter(r => r.db === 'Themes'     && !backendThemes.has(normName(r.name))),
-    subthemes:  notionData.filter(r => r.db === 'Sub-themes' && !backendSubthemes.has(normName(r.name))),
-    indicators: notionData.filter(r => r.db === 'Indicators' && !backendIndicators.has(normName(r.name))),
+    themes:     notionData.filter(r => r.db === 'Themes'     && inScope(r)  && !backendThemes.has(normName(r.name))),
+    subthemes:  notionData.filter(r => r.db === 'Sub-themes' && inScope(r)  && !backendSubthemes.has(normName(r.name))),
+    indicators: notionData.filter(r => r.db === 'Indicators' && inScope(r)  && !backendIndicators.has(normName(r.name))),
+    questions:  notionData.filter(r => r.db === 'Questions'  && inScopeQ(r) && !backendQuestions.has(normName(r.name))),
   };
 }
 
@@ -326,15 +334,19 @@ const Overview = ({ filtered, discrepancies, allData }) => {
       </Card>
     </div>
     <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
-      <Card title={<>Due This Week <span style={{ display: "inline-block", padding: "2px 7px", borderRadius: 3, fontSize: 10, fontWeight: 700, background: "#F0C71D", color: C.forest, marginLeft: 8 }}>≤7 days</span></>}>
-        {filtered.filter(r => isWeek(r.deadline)).length
-          ? filtered.filter(r => isWeek(r.deadline)).slice(0, 8).map(r => (
-            <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${C.cloud}` }}>
-              <Pill label={r.db} small /><Pill label={r.actionNeededBy} small />
-              <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{r.name}</span>
-              <span style={{ fontSize: 11, color: isOver(r.deadline) ? C.coral : C.dim }}>{r.deadline}</span>
-            </div>))
-          : <div style={{ textAlign: "center", padding: 24, color: C.dim, fontStyle: "italic" }}>No items due this week</div>}
+      <Card title={<>Deadlines <span style={{ display: "inline-block", padding: "2px 7px", borderRadius: 3, fontSize: 10, fontWeight: 700, background: "#F0C71D", color: C.forest, marginLeft: 8 }}>this week + overdue</span></>}>
+        {(() => {
+          const dueItems = filtered.filter(r => isDue(r.deadline)).sort((a, b) => isOver(a.deadline) !== isOver(b.deadline) ? (isOver(a.deadline) ? -1 : 1) : (a.deadline > b.deadline ? 1 : -1));
+          return dueItems.length
+            ? <div style={{ maxHeight: 340, overflowY: "auto" }}>{dueItems.map(r => (
+              <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${C.cloud}` }}>
+                <Pill label={r.db} small /><Pill label={r.actionNeededBy} small />
+                {isOver(r.deadline) && <span style={{ fontSize: 9, fontWeight: 800, background: C.coral + "22", color: C.coral, padding: "2px 5px", borderRadius: 2, whiteSpace: "nowrap" }}>OVERDUE</span>}
+                <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{r.name}</span>
+                <span style={{ fontSize: 11, color: isOver(r.deadline) ? C.coral : C.dim, whiteSpace: "nowrap" }}>{r.deadline}</span>
+              </div>))}</div>
+            : <div style={{ textAlign: "center", padding: 24, color: C.dim, fontStyle: "italic" }}>No upcoming or overdue deadlines</div>;
+        })()}
       </Card>
       <Card title="Action Breakdown">
         {Object.entries(aC).map(([k, v]) => (
@@ -349,13 +361,15 @@ const Overview = ({ filtered, discrepancies, allData }) => {
       </Card>
     </div>
     {discrepancies && allData && (() => {
-      const totals = { Themes: allData.filter(r => r.db === 'Themes').length, 'Sub-themes': allData.filter(r => r.db === 'Sub-themes').length, Indicators: allData.filter(r => r.db === 'Indicators').length };
-      const missing = { Themes: discrepancies.themes.length, 'Sub-themes': discrepancies.subthemes.length, Indicators: discrepancies.indicators.length };
-      const totalMissing = missing.Themes + missing['Sub-themes'] + missing.Indicators;
+      const inScopeOv  = r => r.vertical === 'REFLECT' || r.vertical === 'BOTH';
+      const inScopeOvQ = r => r.vertical !== 'C4C';
+      const totals = { Themes: allData.filter(r => r.db === 'Themes' && inScopeOv(r)).length, 'Sub-themes': allData.filter(r => r.db === 'Sub-themes' && inScopeOv(r)).length, Indicators: allData.filter(r => r.db === 'Indicators' && inScopeOv(r)).length, Questions: allData.filter(r => r.db === 'Questions' && inScopeOvQ(r)).length };
+      const missing = { Themes: discrepancies.themes.length, 'Sub-themes': discrepancies.subthemes.length, Indicators: discrepancies.indicators.length, Questions: discrepancies.questions.length };
+      const totalMissing = missing.Themes + missing['Sub-themes'] + missing.Indicators + missing.Questions;
       return (
         <div style={{ marginTop: 16 }}>
           <Card title={<>Platform Sync <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 3, background: totalMissing > 0 ? C.coral + "22" : C.olive + "22", color: totalMissing > 0 ? C.coral : C.olive, marginLeft: 8 }}>{totalMissing > 0 ? `${totalMissing} missing` : "All synced"}</span></>} sub="Notion → Backend transfer status">
-            {['Themes', 'Sub-themes', 'Indicators'].map(db => {
+            {['Themes', 'Sub-themes', 'Indicators', 'Questions'].map(db => {
               const total = totals[db] || 0;
               const synced = total - (missing[db] || 0);
               const pct = total > 0 ? Math.round(synced / total * 100) : 100;
@@ -576,57 +590,130 @@ const Hierarchy = ({ vFilter, data }) => {
 // ─── SEARCH TAB ───────────────────────────────────────────────────────────────
 const Search = ({ data }) => {
   const [query, setQuery] = useState("");
-  const [results, setResults] = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [submitted, setSubmitted] = useState("");
+  const [dbFilter, setDbFilter] = useState("ALL");
+  const [vertFilter, setVertFilter] = useState("ALL");
 
-  const runSearch = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    const ctx = data.filter(s => s.status !== "Retired").map(s => {
-      const theme = KB_THEMES.find(t => t.id === s.themeId);
-      return `- ${s.name} (Theme: ${theme ? theme.name : "unknown"})`;
-    }).join("\n");
-    try {
-      const resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 800,
-          system: "You are a KB taxonomy expert for ConnectGo REFLECT. Given a question or concept, find the best-fit sub-theme. Return ONLY JSON array: [{\"subtheme\":\"name\",\"confidence\":\"high|medium|low\",\"reasoning\":\"1-2 sentences\",\"theme\":\"parent theme name\",\"tip\":\"Notion search advice\"}]",
-          messages: [{ role: "user", content: `Query: "${query}"\n\nAvailable sub-themes:\n${ctx}\n\nReturn best matches as JSON.` }] })
-      });
-      const d = await resp.json();
-      const text = d.content.filter(b => b.type === "text").map(b => b.text).join("");
-      const clean = text.replace(/```json|```/g, "").trim();
-      setResults(JSON.parse(clean.slice(clean.indexOf("["), clean.lastIndexOf("]") + 1)));
-    } catch (e) {
-      setResults([{ subtheme: "Search unavailable in demo mode", confidence: "low", reasoning: "The AI search connects to the Anthropic API — available once deployed to Netlify.", theme: "", tip: "" }]);
-    }
-    setLoading(false);
+  const DB_COLORS = { Themes: C.amber, "Sub-themes": C.plum, Indicators: C.olive, Questions: C.forest };
+  const DBS = ["ALL", "Themes", "Sub-themes", "Indicators", "Questions"];
+  const VERTS = ["ALL", "REFLECT", "BOTH", "C4C"];
+
+  const scoreItem = (item, terms, fullQ) => {
+    const name  = (item.name   || "").toLowerCase();
+    const notes = (item.notes  || "").toLowerCase();
+    const stat  = (item.status || "").toLowerCase();
+    const all   = `${name} ${notes} ${stat}`;
+    if (!terms.every(t => all.includes(t))) return 0;
+    if (name === fullQ)           return 100;
+    if (name.startsWith(fullQ))   return 85;
+    if (name.includes(fullQ))     return 70;
+    if (terms.every(t => name.includes(t))) return 55;
+    if (notes.includes(fullQ))    return 30;
+    return 15;
   };
 
-  const confColors = { high: { bg: "rgba(133,135,85,0.15)", color: C.olive }, medium: { bg: "rgba(205,128,40,0.15)", color: C.amber }, low: { bg: "rgba(238,92,95,0.12)", color: C.coral } };
+  const results = useMemo(() => {
+    if (!submitted.trim()) return null;
+    const fullQ = submitted.trim().toLowerCase();
+    const terms = fullQ.split(/\s+/).filter(Boolean);
+    return data
+      .filter(r => dbFilter  === "ALL" || r.db       === dbFilter)
+      .filter(r => vertFilter === "ALL" || r.vertical === vertFilter)
+      .map(r => ({ ...r, _score: scoreItem(r, terms, fullQ) }))
+      .filter(r => r._score > 0)
+      .sort((a, b) => b._score - a._score);
+  }, [submitted, dbFilter, vertFilter, data]);
 
-  return <Card title="KB Semantic Search — Find the right sub-theme for any question or concept" sub="Paste a question or concept — Claude identifies the best-fit sub-theme with reasoning">
-    <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-      <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && runSearch()}
-        placeholder="e.g. How much do you trust the WMA? or community attitudes toward forest conservation"
-        style={{ flex: 1, padding: "12px 16px", border: `2px solid ${C.cloud}`, borderRadius: 6, fontSize: 14, fontFamily: "inherit", outline: "none", color: C.forest }} />
-      <button onClick={runSearch} disabled={loading} style={{ padding: "12px 24px", background: loading ? C.dim : C.forest, color: C.white, border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: loading ? "not-allowed" : "pointer", letterSpacing: "0.08em", textTransform: "uppercase" }}>
-        {loading ? "Searching..." : "Search KB"}
-      </button>
-    </div>
-    {results && results.map((r, i) => {
-      const cs = confColors[r.confidence] || confColors.low;
-      return <div key={i} style={{ background: C.white, borderRadius: 6, padding: "18px 20px", marginBottom: 10, borderLeft: `4px solid ${C.olive}` }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 16, fontWeight: 700, color: C.forest }}>{r.subtheme}</span>
-          <span style={{ padding: "2px 7px", borderRadius: 3, fontSize: 10, fontWeight: 700, ...cs }}>{(r.confidence || "").toUpperCase()}</span>
+  const run  = () => { if (query.trim()) setSubmitted(query); };
+  const clear = () => { setQuery(""); setSubmitted(""); };
+
+  const byDb = results
+    ? DBS.slice(1).reduce((acc, db) => { acc[db] = results.filter(r => r.db === db); return acc; }, {})
+    : {};
+
+  const fBtn = (label, val, cur, set) => (
+    <button key={val} onClick={() => set(val)} style={{ padding: "4px 11px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: "inherit", border: `1px solid ${cur === val ? C.forest : C.cloud}`, background: cur === val ? C.forest : "transparent", color: cur === val ? C.white : C.muted, cursor: "pointer" }}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div>
+      {/* ── Search bar ── */}
+      <div style={{ background: C.white, borderRadius: 8, border: `1px solid ${C.cloud}`, padding: "20px 24px", marginBottom: 16 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Search Knowledge Base — {data.length.toLocaleString()} items across 4 databases</div>
+        <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
+          <input value={query} onChange={e => setQuery(e.target.value)} onKeyDown={e => e.key === "Enter" && run()} autoFocus
+            placeholder="Search by name, review notes, or status…"
+            style={{ flex: 1, padding: "11px 16px", border: `2px solid ${submitted ? C.forest : C.cloud}`, borderRadius: 6, fontSize: 14, fontFamily: "inherit", outline: "none", color: C.forest, transition: "border-color 0.15s" }} />
+          <button onClick={run} style={{ padding: "11px 24px", background: C.forest, color: C.white, border: "none", borderRadius: 6, fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", letterSpacing: "0.08em", textTransform: "uppercase" }}>Search</button>
+          {submitted && <button onClick={clear} style={{ padding: "11px 14px", background: "transparent", color: C.muted, border: `1px solid ${C.cloud}`, borderRadius: 6, fontSize: 13, cursor: "pointer" }}>✕</button>}
         </div>
-        {r.theme && <div style={{ fontSize: 12, color: C.muted, marginTop: 2 }}>Theme: {r.theme}</div>}
-        {r.reasoning && <div style={{ fontSize: 12, color: C.muted, marginTop: 8, lineHeight: 1.6, paddingTop: 8, borderTop: `1px solid ${C.cloud}` }}>{r.reasoning}</div>}
-        {r.tip && <div style={{ fontSize: 11, color: C.amber, marginTop: 6 }}>💡 {r.tip}</div>}
-      </div>;
-    })}
-  </Card>;
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Database</span>
+            {DBS.map(db => fBtn(db === "ALL" ? "All DBs" : db, db, dbFilter, setDbFilter))}
+          </div>
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: "0.08em", textTransform: "uppercase" }}>Vertical</span>
+            {VERTS.map(v => fBtn(v === "ALL" ? "All" : v, v, vertFilter, setVertFilter))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── Empty state ── */}
+      {results === null && (
+        <div style={{ textAlign: "center", padding: "56px 0", color: C.dim }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Type to search across Themes, Sub-themes, Indicators and Questions</div>
+          <div style={{ fontSize: 12 }}>Matches on name · review notes · status · Press Enter or click Search</div>
+        </div>
+      )}
+
+      {/* ── No results ── */}
+      {results !== null && results.length === 0 && (
+        <div style={{ textAlign: "center", padding: "48px 0", color: C.dim }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No results for "{submitted}"</div>
+          <div style={{ fontSize: 12 }}>Try a shorter phrase, a single keyword, or remove filters</div>
+        </div>
+      )}
+
+      {/* ── Results ── */}
+      {results !== null && results.length > 0 && (
+        <div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: C.forest }}>{results.length.toLocaleString()} result{results.length !== 1 ? "s" : ""} for "{submitted}"</span>
+            {DBS.slice(1).map(db => byDb[db].length > 0 && (
+              <span key={db} style={{ fontSize: 11, fontWeight: 700, padding: "2px 8px", borderRadius: 3, background: DB_COLORS[db] + "18", color: DB_COLORS[db] }}>{db}: {byDb[db].length}</span>
+            ))}
+          </div>
+
+          {results.map((r, i) => {
+            const col = DB_COLORS[r.db] || C.muted;
+            const hasAction = r.requiresAction && r.requiresAction !== "No Action Required";
+            return (
+              <div key={r.id + i} style={{ background: C.white, borderRadius: 6, marginBottom: 8, borderLeft: `4px solid ${col}`, border: `1px solid ${C.cloud}`, borderLeftWidth: 4, borderLeftColor: col, borderLeftStyle: "solid" }}>
+                <div style={{ padding: "12px 16px" }}>
+                  <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 7 }}>
+                    <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 3, background: col + "18", color: col, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>{r.db}</span>
+                    {r.vertical && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 3, background: C.cloud, color: C.muted, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>{r.vertical}</span>}
+                    <span style={{ fontSize: 14, fontWeight: 700, color: C.forest, lineHeight: 1.4, flex: 1 }}>{r.name}</span>
+                    <a href={r.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.amber, textDecoration: "none", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>Open in Notion ↗</a>
+                  </div>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                    {r.status && <span style={{ fontSize: 11, color: C.muted }}>{r.status}</span>}
+                    {hasAction && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: C.coral + "18", color: C.coral }}>{r.requiresAction}</span>}
+                    {r.actionNeededBy && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: r.actionNeededBy === "Kate" ? C.amber + "22" : C.olive + "22", color: r.actionNeededBy === "Kate" ? C.amber : C.olive }}>{r.actionNeededBy}</span>}
+                    {r.deadline && <span style={{ fontSize: 10, color: isOver(r.deadline) ? C.coral : C.dim, fontWeight: isOver(r.deadline) ? 700 : 400 }}>{isOver(r.deadline) ? "⚠ Overdue: " : "Due: "}{r.deadline}</span>}
+                  </div>
+                  {r.notes && <div style={{ marginTop: 8, fontSize: 12, color: C.muted, lineHeight: 1.5, paddingTop: 8, borderTop: `1px solid ${C.cloud}` }}>{r.notes.length > 220 ? r.notes.slice(0, 220) + "…" : r.notes}</div>}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
 };
 
 // ─── VELOCITY TAB ─────────────────────────────────────────────────────────────
@@ -667,13 +754,14 @@ const PlatformTheme = ({ theme }) => {
   const toggleSub = id => setOpenSubs(p => ({ ...p, [id]: !p[id] }));
   const subCount = theme.subthemes?.length ?? 0;
   const indicCount = theme.subthemes?.reduce((n, s) => n + (s.indicators?.length ?? 0), 0) ?? 0;
+  const qCount = theme.subthemes?.reduce((n, s) => n + (s.questions?.length ?? 0), 0) ?? 0;
 
   return <div style={{ background: C.forest, borderRadius: 6, marginBottom: 6, overflow: "hidden", color: C.white }}>
     <div onClick={() => setOpen(o => !o)} style={{ padding: "12px 16px", display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}>
       <span style={{ fontSize: 9, transition: "transform 0.15s", transform: open ? "rotate(90deg)" : "none", color: "rgba(255,255,255,0.4)" }}>▶</span>
       <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>{theme.name}</span>
       {theme.theoryOfChangeStage && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 2, background: "rgba(240,199,29,0.2)", color: "#F0C71D" }}>{theme.theoryOfChangeStage}</span>}
-      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{subCount} sub-themes · {indicCount} indicators</span>
+      <span style={{ fontSize: 11, color: "rgba(255,255,255,0.35)" }}>{subCount} sub-themes · {indicCount} indicators · {qCount} questions</span>
       <span style={{ fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 2, background: "rgba(133,135,85,0.25)", color: "#c8d89a" }}>{theme.status}</span>
     </div>
     {open && <div style={{ borderTop: "1px solid rgba(255,255,255,0.08)", padding: "10px 12px" }}>
@@ -682,20 +770,34 @@ const PlatformTheme = ({ theme }) => {
           ? <div style={{ padding: "8px 12px", fontSize: 12, color: "rgba(255,255,255,0.3)", fontStyle: "italic" }}>No sub-themes</div>
           : theme.subthemes.map(sub => {
             const iCount = sub.indicators?.length ?? 0;
+            const qqCount = sub.questions?.length ?? 0;
+            const hasChildren = iCount > 0 || qqCount > 0;
             return <div key={sub._id} style={{ borderRadius: 4, marginBottom: 5, background: "rgba(255,255,255,0.04)", overflow: "hidden" }}>
-              <div onClick={() => toggleSub(sub._id)} style={{ padding: "9px 12px", display: "flex", alignItems: "center", gap: 8, cursor: iCount > 0 ? "pointer" : "default" }}>
-                {iCount > 0 && <span style={{ fontSize: 9, transition: "transform 0.15s", transform: openSubs[sub._id] ? "rotate(90deg)" : "none", color: "rgba(255,255,255,0.4)" }}>▶</span>}
+              <div onClick={() => hasChildren && toggleSub(sub._id)} style={{ padding: "9px 12px", display: "flex", alignItems: "center", gap: 8, cursor: hasChildren ? "pointer" : "default" }}>
+                {hasChildren && <span style={{ fontSize: 9, transition: "transform 0.15s", transform: openSubs[sub._id] ? "rotate(90deg)" : "none", color: "rgba(255,255,255,0.4)" }}>▶</span>}
                 <span style={{ fontSize: 12, fontWeight: 600, flex: 1, color: "rgba(255,255,255,0.85)" }}>{sub.name}</span>
                 {sub.theoryOfChangeStage && <span style={{ fontSize: 10, padding: "1px 6px", borderRadius: 2, background: "rgba(240,199,29,0.15)", color: "#F0C71D" }}>{sub.theoryOfChangeStage === "Stage 1 - Output" ? "Stage 1" : "Stage 2"}</span>}
-                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{iCount} indicators</span>
+                <span style={{ fontSize: 10, color: "rgba(255,255,255,0.3)" }}>{iCount} indicators · {qqCount} questions</span>
                 <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: "rgba(133,135,85,0.2)", color: "#c8d89a" }}>{sub.status}</span>
               </div>
-              {openSubs[sub._id] && iCount > 0 && <div style={{ padding: "4px 12px 10px 28px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
-                {sub.indicators.map(ind => <div key={ind._id} style={{ padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "flex-start", gap: 8 }}>
-                  <span style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", marginTop: 3, flexShrink: 0 }}>◆</span>
-                  <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.4 }}>{ind.name}</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: "rgba(133,135,85,0.2)", color: "#c8d89a", flexShrink: 0, marginLeft: "auto" }}>{ind.status}</span>
-                </div>)}
+              {openSubs[sub._id] && hasChildren && <div style={{ padding: "4px 12px 10px 28px", borderTop: "1px solid rgba(255,255,255,0.06)" }}>
+                {iCount > 0 && <div style={{ marginBottom: qqCount > 0 ? 8 : 0 }}>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(255,255,255,0.25)", textTransform: "uppercase", marginBottom: 4 }}>Indicators</div>
+                  {sub.indicators.map(ind => <div key={ind._id} style={{ padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <span style={{ fontSize: 9, color: "rgba(255,255,255,0.2)", marginTop: 3, flexShrink: 0 }}>◆</span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.4 }}>{ind.name}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: "rgba(133,135,85,0.2)", color: "#c8d89a", flexShrink: 0, marginLeft: "auto" }}>{ind.status}</span>
+                  </div>)}
+                </div>}
+                {qqCount > 0 && <div>
+                  <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: "0.12em", color: "rgba(77,168,222,0.5)", textTransform: "uppercase", marginBottom: 4 }}>Questions</div>
+                  {sub.questions.map(q => <div key={q._id} style={{ padding: "5px 0", borderBottom: "1px solid rgba(255,255,255,0.04)", display: "flex", alignItems: "flex-start", gap: 8 }}>
+                    <span style={{ fontSize: 9, color: "rgba(77,168,222,0.4)", marginTop: 3, flexShrink: 0 }}>?</span>
+                    <span style={{ fontSize: 12, color: "rgba(255,255,255,0.7)", lineHeight: 1.4, flex: 1 }}>{q.text}</span>
+                    <span style={{ fontSize: 10, color: "rgba(255,255,255,0.25)", flexShrink: 0 }}>{q.type}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: "rgba(77,168,222,0.15)", color: "#4ea8de", flexShrink: 0 }}>{q.status}</span>
+                  </div>)}
+                </div>}
               </div>}
             </div>;
           })}
@@ -732,6 +834,7 @@ const Platform = ({ data }) => {
         { val: summary?.themes ?? themes.length, label: "Themes", color: C.plum },
         { val: summary?.subthemes ?? "—", label: "Sub-themes", color: C.amber },
         { val: summary?.indicators ?? "—", label: "Indicators", color: C.olive },
+        { val: summary?.questions ?? "—", label: "Questions", color: '#4ea8de' },
         { val: summary?.standards ?? standards.length, label: "Standards", color: C.forest },
         { val: summary?.sdgs ?? sdgs.length, label: "SDGs", color: "#11302A" },
         { val: summary?.esgCategories ?? esgCategories.length, label: "ESG Categories", color: C.muted },
@@ -812,6 +915,7 @@ const Platform = ({ data }) => {
 const Discrepancies = ({ discrepancies, allData, platformData }) => {
   const [dbFilter, setDbFilter] = useState('ALL');
   const [statusFilter, setStatusFilter] = useState('ALL');
+  const [verticalFilter, setVerticalFilter] = useState('ALL');
 
   if (!platformData) return (
     <div style={{ textAlign: "center", padding: 60, color: C.dim, fontStyle: "italic" }}>
@@ -819,33 +923,40 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
     </div>
   );
 
-  const { themes, subthemes, indicators } = discrepancies;
+  const inScope  = r => r.vertical === 'REFLECT' || r.vertical === 'BOTH';
+  const inScopeQ = r => r.vertical !== 'C4C';
+  const { themes, subthemes, indicators, questions } = discrepancies;
+
+  // Totals: structured items scoped to REFLECT+BOTH; questions scoped to non-C4C (rollup often returns null)
   const totals = {
-    Themes: allData.filter(r => r.db === 'Themes').length,
-    'Sub-themes': allData.filter(r => r.db === 'Sub-themes').length,
-    Indicators: allData.filter(r => r.db === 'Indicators').length,
+    Themes:       allData.filter(r => r.db === 'Themes'     && inScope(r)).length,
+    'Sub-themes': allData.filter(r => r.db === 'Sub-themes' && inScope(r)).length,
+    Indicators:   allData.filter(r => r.db === 'Indicators' && inScope(r)).length,
+    Questions:    allData.filter(r => r.db === 'Questions'  && inScopeQ(r)).length,
   };
 
   const allRows = [
     ...themes.map(r => ({ ...r, _db: 'Themes' })),
     ...subthemes.map(r => ({ ...r, _db: 'Sub-themes' })),
     ...indicators.map(r => ({ ...r, _db: 'Indicators' })),
+    ...(questions || []).map(r => ({ ...r, _db: 'Questions' })),
   ];
 
   const notionStatuses = [...new Set(allRows.map(r => r.status).filter(Boolean))].sort();
 
   const rows = allRows
     .filter(r => dbFilter === 'ALL' || r._db === dbFilter)
-    .filter(r => statusFilter === 'ALL' || r.status === statusFilter);
+    .filter(r => statusFilter === 'ALL' || r.status === statusFilter)
+    .filter(r => verticalFilter === 'ALL' || r.vertical === verticalFilter);
 
-  const totalMissing = themes.length + subthemes.length + indicators.length;
+  const totalMissing = themes.length + subthemes.length + indicators.length + (questions || []).length;
   const filterBtn = (label, val, current, setter, count) => (
     <button key={val} onClick={() => setter(val)} style={{ padding: "5px 12px", borderRadius: 4, fontSize: 11, fontWeight: 700, fontFamily: "inherit", border: `1px solid ${current === val ? C.coral : C.cloud}`, background: current === val ? C.coral + "18" : "transparent", color: current === val ? C.coral : C.muted, cursor: "pointer" }}>
       {label}{count !== undefined ? ` (${count})` : ''}
     </button>
   );
 
-  const dbColors = { Themes: C.amber, 'Sub-themes': C.plum, Indicators: C.olive };
+  const dbColors = { Themes: C.amber, 'Sub-themes': C.plum, Indicators: C.olive, Questions: C.sky || '#4ea8de' };
 
   return (
     <div>
@@ -854,11 +965,12 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
         <KPI val={themes.length} label="Themes" accent={C.amber} />
         <KPI val={subthemes.length} label="Sub-themes" accent={C.plum} />
         <KPI val={indicators.length} label="Indicators" accent={C.olive} />
+        <KPI val={(questions || []).length} label="Questions" accent={C.sky || '#4ea8de'} />
       </div>
 
-      {['Themes', 'Sub-themes', 'Indicators'].map(db => {
+      {['Themes', 'Sub-themes', 'Indicators', 'Questions'].map(db => {
         const total = totals[db] || 0;
-        const missing = discrepancies[db === 'Themes' ? 'themes' : db === 'Sub-themes' ? 'subthemes' : 'indicators'].length;
+        const missing = (discrepancies[db === 'Themes' ? 'themes' : db === 'Sub-themes' ? 'subthemes' : db === 'Indicators' ? 'indicators' : 'questions'] || []).length;
         const synced = total - missing;
         const pct = total > 0 ? Math.round(synced / total * 100) : 100;
         const color = dbColors[db];
@@ -875,16 +987,31 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
         );
       })}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 20, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ background: "rgba(133,135,85,0.07)", border: `1px solid ${C.cloud}`, borderRadius: 6, padding: "10px 14px", marginTop: 20, marginBottom: 4, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 10, fontWeight: 700, color: C.olive, letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 4 }}>Vertical</span>
+        {filterBtn('All (REFLECT + BOTH)', 'ALL', verticalFilter, setVerticalFilter)}
+        {filterBtn('REFLECT', 'REFLECT', verticalFilter, setVerticalFilter, themes.filter(r => r.vertical === 'REFLECT').length + subthemes.filter(r => r.vertical === 'REFLECT').length + indicators.filter(r => r.vertical === 'REFLECT').length + (questions || []).filter(r => r.vertical === 'REFLECT').length)}
+        {filterBtn('BOTH', 'BOTH', verticalFilter, setVerticalFilter, themes.filter(r => r.vertical === 'BOTH').length + subthemes.filter(r => r.vertical === 'BOTH').length + indicators.filter(r => r.vertical === 'BOTH').length + (questions || []).filter(r => r.vertical === 'BOTH').length)}
+        {filterBtn('C4C', 'C4C', verticalFilter, setVerticalFilter)}
+        <span style={{ fontSize: 10, color: C.dim, fontStyle: "italic", marginLeft: 8 }}>Gap counts above include REFLECT + BOTH only</span>
+      </div>
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 4 }}>DB</span>
         {filterBtn('All', 'ALL', dbFilter, setDbFilter)}
         {filterBtn('Themes', 'Themes', dbFilter, setDbFilter, themes.length)}
         {filterBtn('Sub-themes', 'Sub-themes', dbFilter, setDbFilter, subthemes.length)}
         {filterBtn('Indicators', 'Indicators', dbFilter, setDbFilter, indicators.length)}
+        {filterBtn('Questions', 'Questions', dbFilter, setDbFilter, (questions || []).length)}
         <span style={{ fontSize: 10, fontWeight: 700, color: C.dim, letterSpacing: "0.08em", textTransform: "uppercase", marginLeft: 12, marginRight: 4 }}>Status</span>
         {filterBtn('All', 'ALL', statusFilter, setStatusFilter)}
         {notionStatuses.map(s => filterBtn(s, s, statusFilter, setStatusFilter))}
       </div>
+      {verticalFilter === 'C4C' && (
+        <div style={{ background: "rgba(205,128,40,0.08)", border: `1px solid ${C.amber}44`, borderRadius: 6, padding: "10px 16px", marginBottom: 12, fontSize: 12, color: C.amber }}>
+          C4C items are out of scope for backend sync — the backend currently only serves the REFLECT vertical. These items are not counted in the gap totals above.
+        </div>
+      )}
 
       {rows.length === 0
         ? <div style={{ textAlign: "center", padding: 40, color: C.olive, fontStyle: "italic", fontWeight: 600 }}>✓ All {dbFilter === 'ALL' ? '' : dbFilter + ' '}items transferred to backend</div>
@@ -906,7 +1033,7 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
           </div>
       }
       <div style={{ marginTop: 10, fontSize: 11, color: C.dim, textAlign: "right" }}>
-        Showing {rows.length} of {allRows.length} missing items · Questions excluded (no backend equivalent)
+        Showing {rows.length} of {allRows.length} missing items
       </div>
     </div>
   );
@@ -973,7 +1100,7 @@ function App() {
       <div style={{ background: C.forest, padding: "20px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.3em", color: C.amber, textTransform: "uppercase", marginBottom: 4 }}>ConnectGo · Knowledge Base</div>
-          <div style={{ fontSize: 24, fontWeight: 800, color: C.white, letterSpacing: -1 }}>Quality Assurance Dashboard</div>
+          <div style={{ fontSize: 24, fontWeight: 800, color: C.white, letterSpacing: -1 }}>Knowledge Base Dashboard</div>
           <div style={{ fontSize: 12, color: "rgba(255,255,255,0.45)", marginTop: 3 }}>Tracking review progress · Themes · Sub-themes · Indicators · Questions</div>
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
