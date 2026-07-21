@@ -116,7 +116,7 @@ async function queryDatabase(databaseId, token) {
 function commonQaFields(props) {
   return {
     requiresAction: extractSelect(props['Requires Action']),
-    actionNeededBy: extractSelect(props['Action Needed By']),
+    actionNeededBy: extractMultiSelect(props['Action Needed By']),
     deadline: extractDate(props['Action Deadline']),
     taxonomic: extractRating(props['Taxonomic Thinking ★']),
     completeness: extractRating(props['Completeness ★']),
