@@ -1290,8 +1290,8 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
         <span style={{ fontSize: 10, fontWeight: 700, color: C.olive, letterSpacing: "0.08em", textTransform: "uppercase", marginRight: 4 }}>Vertical</span>
         {filterBtn('All', 'ALL', verticalFilter, setVerticalFilter)}
         {filterBtn('RfC', 'RfC', verticalFilter, setVerticalFilter, vCount('RfC'))}
-        {filterBtn('C4C', 'C4C', verticalFilter, setVerticalFilter, vCount('C4C'))}
         {filterBtn('RfN', 'RfN', verticalFilter, setVerticalFilter, vCount('RfN'))}
+        {filterBtn('C4C', 'C4C', verticalFilter, setVerticalFilter, vCount('C4C'))}
         <span style={{ fontSize: 10, color: C.dim, fontStyle: "italic", marginLeft: 8 }}>Gap counts above include all in-scope verticals</span>
       </div>
 
@@ -1412,7 +1412,7 @@ function App() {
         </div>
         <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 10 }}>
           <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-            {[["Vertical", ["ALL", "RfC", "C4C", "RfN"], vFilter, setVFilter], ["Owner", ownerOptions, oFilter, setOFilter]].map(([label, opts, val, set]) => (
+            {[["Vertical", ["ALL", "RfC", "RfN", "C4C"], vFilter, setVFilter], ["Owner", ownerOptions, oFilter, setOFilter]].map(([label, opts, val, set]) => (
               <div key={label} style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <span style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", fontWeight: 600, letterSpacing: "0.1em", textTransform: "uppercase" }}>{label}</span>
                 <select value={val} onChange={e => set(e.target.value)} style={{ padding: "6px 10px", border: "1px solid rgba(255,255,255,0.15)", borderRadius: 6, background: "rgba(255,255,255,0.08)", color: C.white, fontSize: 13, fontFamily: "inherit", cursor: "pointer", outline: "none" }}>
