@@ -32,54 +32,43 @@ NOTION DATABASES TO QUERY (all use ConnectGo Compliance v2 integration):
   Indicators DB:  30a60bfb-014e-8001-b8eb-000bb2d071bf
   Questions DB:   30a60bfb-014e-8013-b1e2-000b94a07c65
 
-VERTICAL FIELD — all DBs:
-  "Vertical" is a MULTI-SELECT on Themes, Sub-themes, and Indicators — an item
-  can carry more than one of RfC / C4C / RfN at once. Always returned as an
-  array (possibly empty), e.g. ["RfC", "C4C"].
-  Questions has no multi-select of its own — its "Vertical " (trailing space)
-  is a FORMULA field that concatenates the tags rolled up from the linked
-  Subtheme (e.g. "RfC, C4C"). The backend function splits this string back
-  into an array so Questions match the same shape as the other three DBs.
-  "Action Needed By" is also a MULTI-SELECT (Belinda / Kate / Hope / Hannah,
-  any combination) — also always returned as an array.
-
-THEMES DB specific:
-  Title field = "Theme Name"
-  "Theme Status"             → status field
-  "Vertical"                 → multi-select field → array
-
-SUB-THEMES DB specific:
-  Title field = "Sub-theme name"
-  "Subtheme Status"          → status field
-  "Vertical"                 → multi-select field → array
-  "Theme database"           → relation field (grab first related page ID)
-  "Approved By"               → people field (comma-joined display names)
-
-INDICATORS DB specific:
-  Title field = "Indicator statement"
-  "Status"                   → status field
-  "Vertical"                 → multi-select field → array
-  "Subtheme"                 → relation field (grab first related page ID)
-  "Developed By"              → people field (comma-joined display names)
-
-QUESTIONS DB specific:
-  Title field = "Question Text"
-  "Question Status"          → select field (not a status widget)
-  "Vertical " (trailing space) → formula field, string, split into array
-  "Subtheme"                 → relation field (grab first related page ID)
-  "Indicator database"       → relation field (grab first related page ID)
-    NOTE: this is the Questions→Indicators link. Currently one-way.
-    Include the linked indicator page ID as "parentIndicatorId" in the response.
+NOTION FIELD NAMES TO EXTRACT PER DB:
 
   ALL FOUR DBs — QA fields (added June 2026):
     "Requires Action"          → select field
-    "Action Needed By"         → multi-select field → array
+    "Action Needed By"         → select field (Belinda / Kate / Both)
     "Action Deadline"          → date field (ISO string)
     "Taxonomic Thinking ★"     → select field (extract leading number 1-5)
     "Completeness ★"           → select field (extract leading number 1-5)
     "Construct Understanding ★"→ select field (extract leading number 1-5)
     "Design ★"                 → select field (extract leading number 1-5)
     "Review Notes"             → rich text field
+
+  THEMES DB specific:
+    Title field = "Theme Name"
+    "Theme Status"             → status field
+    "Vertical"                 → select field
+
+  SUB-THEMES DB specific:
+    Title field = "Sub-theme name"
+    "Subtheme Status"          → status field
+    "Vertical"                 → select field
+    "Theme"                    → relation field (grab first related page ID)
+
+  INDICATORS DB specific:
+    Title field = page title
+    Status field = check schema — may be "Indicator Status"
+    "Vertical"                 → select field
+    "Sub-theme"                → relation field (grab first related page ID)
+
+  QUESTIONS DB specific:
+    Title field = "Question Text"
+    "Question Status"          → status field
+    "Vertical (via Subtheme)"  → rollup field (returns array — grab first value)
+    "Subtheme"                 → relation field (grab first related page ID)
+    "Indicator database"       → relation field (grab first related page ID)
+      NOTE: this is the Questions→Indicators link. Currently one-way.
+      Include the linked indicator page ID as "parentIndicatorId" in the response.
 
 JSON RESPONSE SCHEMA (array of objects):
   [
@@ -89,9 +78,9 @@ JSON RESPONSE SCHEMA (array of objects):
       "name":            string,   // item title
       "url":             string,   // full Notion page URL
       "status":          string,   // status field value
-      "vertical":        array,    // e.g. ["RfC","C4C"] — subset of RfC/C4C/RfN, [] if unset
+      "vertical":        string,   // "C4C" | "RfC" | "RfN" | null
       "requiresAction":  string,   // select value or null
-      "actionNeededBy":  array,    // e.g. ["Belinda","Kate"] — subset of team members, [] if unset
+      "actionNeededBy":  string,   // "Belinda" | "Kate" | "Hope" | "Hannah" | null
       "deadline":        string,   // ISO date string or null
       "taxonomic":       number,   // 1-5 or null
       "completeness":    number,   // 1-5 or null
@@ -161,39 +150,44 @@ const IN_SCOPE_VERTICALS = ['RfC', 'C4C', 'RfN'];
 
 // ─── SEED DATA ────────────────────────────────────────────────────────────────
 const SEED_DATA = [
-  { id: "s1", db: "Sub-themes", name: "Institutional Trust and Legitimacy", themeId: "t1", vertical: ["REFLECT"], status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: ["Belinda"], deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "Flagged for retirement — all questions have existing KB homes in Social Legitimacy", url: "https://app.notion.com/p/36860bfb014e8118acb4c36e069e0227" },
-  { id: "s2", db: "Sub-themes", name: "Livelihood Security and Resource Rights", themeId: "t6", vertical: ["REFLECT"], status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: ["Belinda"], deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "Multiple constructs conflated — questions belong in NRM, HWC, User Rights", url: "https://app.notion.com/p/36860bfb014e81178eb4f1fe105f24e5" },
-  { id: "s3", db: "Sub-themes", name: "Benefit Sharing and Conservation Equity", themeId: "t4", vertical: ["REFLECT"], status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: ["Belinda"], deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "Redundant — all questions have existing KB homes across 3 sub-themes", url: "https://app.notion.com/p/36860bfb014e811fa4f3d9279e7eef9a" },
-  { id: "s4", db: "Sub-themes", name: "Social Cohesion and Conflict Dynamics", themeId: "t1", vertical: ["REFLECT"], status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: ["Belinda"], deadline: "2026-06-21", taxonomic: 1, completeness: 2, construct: 1, design: 2, notes: "Single question sub-theme — over-built descriptor", url: "https://app.notion.com/p/36860bfb014e81a29e33c62a38a7012d" },
-  { id: "s5", db: "Sub-themes", name: "Community Voice and Participation", themeId: "t1", vertical: ["REFLECT"], status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: ["Belinda"], deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "7 questions all have existing KB homes", url: "https://app.notion.com/p/36860bfb014e81f0a376c21a25555226" },
-  { id: "s6", db: "Sub-themes", name: "Adoption of Climate Measures and Actions", themeId: "t2", vertical: ["REFLECT"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-21", taxonomic: 4, construct: 4, design: 4, notes: "Provisionally approved. ToC Stage and question scope to verify", url: "https://app.notion.com/p/36860bfb014e812d896fc7f9a25e363a" },
-  { id: "s7", db: "Sub-themes", name: "Climate Change Knowledge and Awareness", themeId: "t2", vertical: ["REFLECT"], status: "Approved", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-21", taxonomic: 5, construct: 5, design: 4, notes: "Well-scoped. Check boundary with Emotional/Perceptual sub-theme", url: "https://app.notion.com/p/36860bfb014e81b88e9fe5d71b7b6833" },
-  { id: "s8", db: "Sub-themes", name: "Emotional and Perceptual Responses to Climate Change", themeId: "t2", vertical: ["REFLECT"], status: "Approved", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-21", taxonomic: 5, construct: 5, design: 4, notes: "Provisionally approved. Boundary check needed", url: "https://app.notion.com/p/36860bfb014e81d5ac7cf21a26bc53c8" },
-  { id: "s9", db: "Sub-themes", name: "Perceived Social Burdens and Tensions", themeId: "t1", vertical: ["REFLECT"], status: "Approved", requiresAction: "No Action Required", url: "https://app.notion.com/p/31b60bfb014e80109a82d2a5f0217410" },
-  { id: "s10", db: "Sub-themes", name: "Perceived Fairness of Benefit Distribution", themeId: "t1", vertical: ["REFLECT"], status: "Approved", requiresAction: "No Action Required", url: "https://app.notion.com/p/31b60bfb014e808d909afeb5ab9bd0be" },
+  // ── REFLECT Sub-themes (Ruvuma review) ──────────────────────────────────────
+  { id: "s1", db: "Sub-themes", name: "Institutional Trust and Legitimacy", themeId: "t1", vertical: "RfC", status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: "Belinda", deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "Flagged for retirement — all questions have existing KB homes in Social Legitimacy", url: "https://app.notion.com/p/36860bfb014e8118acb4c36e069e0227" },
+  { id: "s2", db: "Sub-themes", name: "Livelihood Security and Resource Rights", themeId: "t6", vertical: "RfC", status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: "Belinda", deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "Multiple constructs conflated — questions belong in NRM, HWC, User Rights", url: "https://app.notion.com/p/36860bfb014e81178eb4f1fe105f24e5" },
+  { id: "s3", db: "Sub-themes", name: "Benefit Sharing and Conservation Equity", themeId: "t4", vertical: "RfC", status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: "Belinda", deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "Redundant — all questions have existing KB homes across 3 sub-themes", url: "https://app.notion.com/p/36860bfb014e811fa4f3d9279e7eef9a" },
+  { id: "s4", db: "Sub-themes", name: "Social Cohesion and Conflict Dynamics", themeId: "t1", vertical: "RfC", status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: "Belinda", deadline: "2026-06-21", taxonomic: 1, completeness: 2, construct: 1, design: 2, notes: "Single question sub-theme — over-built descriptor", url: "https://app.notion.com/p/36860bfb014e81a29e33c62a38a7012d" },
+  { id: "s5", db: "Sub-themes", name: "Community Voice and Participation", themeId: "t1", vertical: "RfC", status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: "Belinda", deadline: "2026-06-21", taxonomic: 1, construct: 1, design: 1, notes: "7 questions all have existing KB homes", url: "https://app.notion.com/p/36860bfb014e81f0a376c21a25555226" },
+  { id: "s6", db: "Sub-themes", name: "Adoption of Climate Measures and Actions", themeId: "t2", vertical: "RfC", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-21", taxonomic: 4, construct: 4, design: 4, notes: "Provisionally approved. ToC Stage and question scope to verify", url: "https://app.notion.com/p/36860bfb014e812d896fc7f9a25e363a" },
+  { id: "s7", db: "Sub-themes", name: "Climate Change Knowledge and Awareness", themeId: "t2", vertical: "RfC", status: "Approved", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-21", taxonomic: 5, construct: 5, design: 4, notes: "Well-scoped. Check boundary with Emotional/Perceptual sub-theme", url: "https://app.notion.com/p/36860bfb014e81b88e9fe5d71b7b6833" },
+  { id: "s8", db: "Sub-themes", name: "Emotional and Perceptual Responses to Climate Change", themeId: "t2", vertical: "RfC", status: "Approved", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-21", taxonomic: 5, construct: 5, design: 4, notes: "Provisionally approved. Boundary check needed", url: "https://app.notion.com/p/36860bfb014e81d5ac7cf21a26bc53c8" },
+  { id: "s9", db: "Sub-themes", name: "Perceived Social Burdens and Tensions", themeId: "t1", vertical: "RfC", status: "Approved", requiresAction: "No Action Required", url: "https://app.notion.com/p/31b60bfb014e80109a82d2a5f0217410" },
+  { id: "s10", db: "Sub-themes", name: "Perceived Fairness of Benefit Distribution", themeId: "t1", vertical: "RfC", status: "Approved", requiresAction: "No Action Required", url: "https://app.notion.com/p/31b60bfb014e808d909afeb5ab9bd0be" },
 
-  { id: "i1", db: "Indicators", name: "Proportion of caregivers who report applying at least one programme-learned strategy at home with their child since their last session", themeId: "c4c-ce", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 4, design: 3, notes: "Strong behaviour transfer construct. Check response option framing — retrospective period needs tightening.", url: "https://app.notion.com/p/33e60bfb014e8171b86cf23b00767ef5" },
-  { id: "i2", db: "Indicators", name: "Proportion of caregivers who report a meaningful increase in confidence in supporting their child's learning, measured on a validated scale at baseline and six months post-enrolment", themeId: "c4c-cl", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 4, notes: "Well-specified. Confirm which validated scale is referenced — needs citation in descriptor.", url: "https://app.notion.com/p/31f60bfb014e804c9a2fc96523b73b60" },
-  { id: "i3", db: "Indicators", name: "Proportion of caregivers who attended at least three structured caregiver learning sessions in the six months prior to the survey", themeId: "c4c-cl", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 5, notes: "Clean output indicator. Three sessions threshold needs programme-level justification in notes.", url: "https://app.notion.com/p/31e60bfb014e8016ab8cd2c19f353ffe" },
-  { id: "i4", db: "Indicators", name: "Proportion of caregivers who report taking at least one action regarding their child's learning informed by school diary content, in the school term prior to the survey", themeId: "c4c-ce", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 4, design: 4, notes: "Good diary engagement indicator. Ensure 'informed by diary content' is operationally defined for enumerators.", url: "https://app.notion.com/p/32060bfb014e8093a64ecfb13c6dc0f1" },
-  { id: "i5", db: "Indicators", name: "Proportion of caregivers who report high confidence in approaching school staff, asking questions about their child's progress, and raising concerns", themeId: "c4c-ce", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 4, design: 3, notes: "Three-part construct in one indicator — consider splitting school approach / question asking / raising concerns.", url: "https://app.notion.com/p/33e60bfb014e817aa296c7fb0979c696" },
-  { id: "i6", db: "Indicators", name: "Proportion of caregivers who report at least one self-initiated or school-initiated dialogue with a teacher about their child's learning in the school term prior to the survey", themeId: "c4c-ce", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 4, notes: "Well-scoped. Confirm that 'dialogue' is defined to exclude one-way communication like diary signatures.", url: "https://app.notion.com/p/32060bfb014e8089a731dc9c8d6e6db6" },
-  { id: "i7", db: "Indicators", name: "Rate of teacher diary entries receiving a caregiver signature within one week, across the school term prior to the survey", themeId: "c4c-ce", vertical: ["C4C"], status: "In Review", requiresAction: "Complete Missing Fields", actionNeededBy: ["Belinda"], deadline: "2026-06-25", completeness: 2, notes: "Missing: response options, ToC Stage, Vertical tag. Data source field not completed.", url: "https://app.notion.com/p/33e60bfb014e80e5befec429e1809fe2" },
-  { id: "i8", db: "Indicators", name: "Proportion of caregivers who report actively reading and engaging with their child's school diary at least once per week during the school term prior to the survey", themeId: "c4c-ce", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 4, design: 4, notes: "Core diary engagement indicator. 'Engaging' needs operational definition beyond reading.", url: "https://app.notion.com/p/32060bfb014e802ea2c6c365a4753bcf" },
-  { id: "i9", db: "Indicators", name: "Proportion of caregivers who report their child has access to a designated, adequately lit, and reasonably quiet space for homework or study at home", themeId: "c4c-hc", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 5, notes: "Prerequisite infrastructure indicator. Clean and well-specified.", url: "https://app.notion.com/p/33e60bfb014e81f3bf2fdf4edc194a65" },
-  { id: "i10", db: "Indicators", name: "Proportion of caregivers who report cultural norms or gender-based expectations as preventing or limiting their engagement with school", themeId: "c4c-ei", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 4, design: 3, notes: "Diagnostic indicator. Sensitive framing needed — check Swahili translation guidance for 'cultural norms'.", url: "https://app.notion.com/p/33e60bfb014e8193b40ef1ec0f726433" },
-  { id: "i11", db: "Indicators", name: "Proportion of caregivers who score at or above the adequacy threshold on a validated brief resilience scale", themeId: "c4c-pw", vertical: ["C4C"], status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 3, design: 4, notes: "Which validated scale? Adequacy threshold not defined in current descriptor. Needs citation.", url: "https://app.notion.com/p/33e60bfb014e817cb2aae30118ff6a44" },
-  { id: "i12", db: "Indicators", name: "Proportion of caregivers who attended at least one programme engagement activity in the reporting year", themeId: "c4c-ce", vertical: ["C4C"], status: "Approved", requiresAction: "No Action Required", url: "https://app.notion.com/p/36160bfb014e813b8772ed2344f09cfc" },
+  // ── C4C Indicators (awaiting Kate review) ────────────────────────────────────
+  { id: "i1", db: "Indicators", name: "Proportion of caregivers who report applying at least one programme-learned strategy at home with their child since their last session", themeId: "c4c-ce", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 4, design: 3, notes: "Strong behaviour transfer construct. Check response option framing — retrospective period needs tightening.", url: "https://app.notion.com/p/33e60bfb014e8171b86cf23b00767ef5" },
+  { id: "i2", db: "Indicators", name: "Proportion of caregivers who report a meaningful increase in confidence in supporting their child's learning, measured on a validated scale at baseline and six months post-enrolment", themeId: "c4c-cl", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 4, notes: "Well-specified. Confirm which validated scale is referenced — needs citation in descriptor.", url: "https://app.notion.com/p/31f60bfb014e804c9a2fc96523b73b60" },
+  { id: "i3", db: "Indicators", name: "Proportion of caregivers who attended at least three structured caregiver learning sessions in the six months prior to the survey", themeId: "c4c-cl", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 5, notes: "Clean output indicator. Three sessions threshold needs programme-level justification in notes.", url: "https://app.notion.com/p/31e60bfb014e8016ab8cd2c19f353ffe" },
+  { id: "i4", db: "Indicators", name: "Proportion of caregivers who report taking at least one action regarding their child's learning informed by school diary content, in the school term prior to the survey", themeId: "c4c-ce", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 4, design: 4, notes: "Good diary engagement indicator. Ensure 'informed by diary content' is operationally defined for enumerators.", url: "https://app.notion.com/p/32060bfb014e8093a64ecfb13c6dc0f1" },
+  { id: "i5", db: "Indicators", name: "Proportion of caregivers who report high confidence in approaching school staff, asking questions about their child's progress, and raising concerns", themeId: "c4c-ce", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 4, design: 3, notes: "Three-part construct in one indicator — consider splitting school approach / question asking / raising concerns.", url: "https://app.notion.com/p/33e60bfb014e817aa296c7fb0979c696" },
+  { id: "i6", db: "Indicators", name: "Proportion of caregivers who report at least one self-initiated or school-initiated dialogue with a teacher about their child's learning in the school term prior to the survey", themeId: "c4c-ce", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 4, notes: "Well-scoped. Confirm that 'dialogue' is defined to exclude one-way communication like diary signatures.", url: "https://app.notion.com/p/32060bfb014e8089a731dc9c8d6e6db6" },
+  { id: "i7", db: "Indicators", name: "Rate of teacher diary entries receiving a caregiver signature within one week, across the school term prior to the survey", themeId: "c4c-ce", vertical: "C4C", status: "In Review", requiresAction: "Complete Missing Fields", actionNeededBy: "Belinda", deadline: "2026-06-25", completeness: 2, notes: "Missing: response options, ToC Stage, Vertical tag. Data source field not completed.", url: "https://app.notion.com/p/33e60bfb014e80e5befec429e1809fe2" },
+  { id: "i8", db: "Indicators", name: "Proportion of caregivers who report actively reading and engaging with their child's school diary at least once per week during the school term prior to the survey", themeId: "c4c-ce", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 4, design: 4, notes: "Core diary engagement indicator. 'Engaging' needs operational definition beyond reading.", url: "https://app.notion.com/p/32060bfb014e802ea2c6c365a4753bcf" },
+  { id: "i9", db: "Indicators", name: "Proportion of caregivers who report their child has access to a designated, adequately lit, and reasonably quiet space for homework or study at home", themeId: "c4c-hc", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 5, notes: "Prerequisite infrastructure indicator. Clean and well-specified.", url: "https://app.notion.com/p/33e60bfb014e81f3bf2fdf4edc194a65" },
+  { id: "i10", db: "Indicators", name: "Proportion of caregivers who report cultural norms or gender-based expectations as preventing or limiting their engagement with school", themeId: "c4c-ei", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 4, design: 3, notes: "Diagnostic indicator. Sensitive framing needed — check Swahili translation guidance for 'cultural norms'.", url: "https://app.notion.com/p/33e60bfb014e8193b40ef1ec0f726433" },
+  { id: "i11", db: "Indicators", name: "Proportion of caregivers who score at or above the adequacy threshold on a validated brief resilience scale", themeId: "c4c-pw", vertical: "C4C", status: "In Review", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 3, design: 4, notes: "Which validated scale? Adequacy threshold not defined in current descriptor. Needs citation.", url: "https://app.notion.com/p/33e60bfb014e817cb2aae30118ff6a44" },
+  { id: "i12", db: "Indicators", name: "Proportion of caregivers who attended at least one programme engagement activity in the reporting year", themeId: "c4c-ce", vertical: "C4C", status: "Approved", requiresAction: "No Action Required", url: "https://app.notion.com/p/36160bfb014e813b8772ed2344f09cfc" },
 
-  { id: "q1", db: "Questions", name: "In the past six months, have you tried any of the learning support strategies you heard about in the programme sessions at home with your child?", themeId: "c4c-ce", vertical: ["C4C"], status: "In Development", requiresAction: "Complete Missing Fields", actionNeededBy: ["Belinda"], deadline: "2026-06-25", completeness: 1, design: 3, notes: "Missing response options entirely. Also needs ToC Stage and sub-theme link.", url: "https://app.notion.com/p/33e60bfb014e8171b86cf23b00767ef5" },
-  { id: "q2", db: "Questions", name: "How confident do you feel in helping your child with their schoolwork and learning at home?", themeId: "c4c-cl", vertical: ["C4C"], status: "In Development", requiresAction: "Complete Missing Fields", actionNeededBy: ["Belinda"], deadline: "2026-06-25", completeness: 2, design: 4, notes: "Response options incomplete — scale defined but anchor labels missing.", url: "https://app.notion.com/p/31f60bfb014e804c9a2fc96523b73b60" },
-  { id: "q3", db: "Questions", name: "How many of the caregiver learning sessions run by the programme have you attended in the past six months?", themeId: "c4c-cl", vertical: ["C4C"], status: "Draft Complete", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 4, notes: "Good retrospective framing. Confirm response scale — open numeric or banded? Banded preferred for oral admin.", url: "https://app.notion.com/p/31e60bfb014e8016ab8cd2c19f353ffe" },
-  { id: "q4", db: "Questions", name: "In the past school term, did you look at or read your child's school diary at least once a week?", themeId: "c4c-ce", vertical: ["C4C"], status: "Draft Complete", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 5, notes: "Clean, retrospective, single construct, binary response. No changes needed.", url: "https://app.notion.com/p/32060bfb014e802ea2c6c365a4753bcf" },
-  { id: "q5", db: "Questions", name: "Does your child have a quiet place at home where they can do their homework or study?", themeId: "c4c-hc", vertical: ["C4C"], status: "Draft Complete", requiresAction: "Awaiting Sign-off", actionNeededBy: ["Kate"], deadline: "2026-06-28", completeness: 5, design: 5, notes: "Excellent — simple, concrete, binary, easy to translate. Approve.", url: "https://app.notion.com/p/33e60bfb014e81f3bf2fdf4edc194a65" },
-  { id: "q6", db: "Questions", name: "In the past school term, did you speak with a teacher or school staff member about how your child is getting on with their learning?", themeId: "c4c-ce", vertical: ["C4C"], status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: ["Belinda"], deadline: "2026-06-25", completeness: 3, design: 2, notes: "Currently uses hypothetical framing ('would you speak'). Rewrite to retrospective ('did you speak'). Also missing Indicator link.", url: "https://app.notion.com/p/32060bfb014e8089a731dc9c8d6e6db6" },
+  // ── C4C Questions (Belinda to complete) ──────────────────────────────────────
+  { id: "q1", db: "Questions", name: "In the past six months, have you tried any of the learning support strategies you heard about in the programme sessions at home with your child?", themeId: "c4c-ce", vertical: "C4C", status: "In Development", requiresAction: "Complete Missing Fields", actionNeededBy: "Belinda", deadline: "2026-06-25", completeness: 1, design: 3, notes: "Missing response options entirely. Also needs ToC Stage and sub-theme link.", url: "https://app.notion.com/p/33e60bfb014e8171b86cf23b00767ef5" },
+  { id: "q2", db: "Questions", name: "How confident do you feel in helping your child with their schoolwork and learning at home?", themeId: "c4c-cl", vertical: "C4C", status: "In Development", requiresAction: "Complete Missing Fields", actionNeededBy: "Belinda", deadline: "2026-06-25", completeness: 2, design: 4, notes: "Response options incomplete — scale defined but anchor labels missing.", url: "https://app.notion.com/p/31f60bfb014e804c9a2fc96523b73b60" },
+  { id: "q3", db: "Questions", name: "How many of the caregiver learning sessions run by the programme have you attended in the past six months?", themeId: "c4c-cl", vertical: "C4C", status: "Draft Complete", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 4, notes: "Good retrospective framing. Confirm response scale — open numeric or banded? Banded preferred for oral admin.", url: "https://app.notion.com/p/31e60bfb014e8016ab8cd2c19f353ffe" },
+  { id: "q4", db: "Questions", name: "In the past school term, did you look at or read your child's school diary at least once a week?", themeId: "c4c-ce", vertical: "C4C", status: "Draft Complete", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 5, notes: "Clean, retrospective, single construct, binary response. No changes needed.", url: "https://app.notion.com/p/32060bfb014e802ea2c6c365a4753bcf" },
+  { id: "q5", db: "Questions", name: "Does your child have a quiet place at home where they can do their homework or study?", themeId: "c4c-hc", vertical: "C4C", status: "Draft Complete", requiresAction: "Awaiting Sign-off", actionNeededBy: "Kate", deadline: "2026-06-28", completeness: 5, design: 5, notes: "Excellent — simple, concrete, binary, easy to translate. Approve.", url: "https://app.notion.com/p/33e60bfb014e81f3bf2fdf4edc194a65" },
+  { id: "q6", db: "Questions", name: "In the past school term, did you speak with a teacher or school staff member about how your child is getting on with their learning?", themeId: "c4c-ce", vertical: "C4C", status: "In Development", requiresAction: "Revise and Resubmit", actionNeededBy: "Belinda", deadline: "2026-06-25", completeness: 3, design: 2, notes: "Currently uses hypothetical framing ('would you speak'). Rewrite to retrospective ('did you speak'). Also missing Indicator link.", url: "https://app.notion.com/p/32060bfb014e8089a731dc9c8d6e6db6" },
 ];
 
 // ─── HELPERS ─────────────────────────────────────────────────────────────────
+const normVert = v => Array.isArray(v) ? v : (v == null || v === "" ? [] : [v]);
+const normItems = arr => (Array.isArray(arr) ? arr : []).map(r => ({ ...r, vertical: normVert(r.vertical), actionNeededBy: normVert(r.actionNeededBy) }));
 const parseR = v => { if (v == null) return null; if (typeof v === "number") return v; const m = String(v).match(/^(\d)/); return m ? parseInt(m[1]) : null; };
 const avgR = arr => { const v = arr.map(parseR).filter(x => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) / v.length : null; };
 const todayStr = () => new Date().toISOString().split('T')[0];
@@ -209,12 +203,12 @@ const PEOPLE = {
   Hope:    { color: '#c47b3a', initials: 'HO', role: 'Reviewer' },
   Hannah:  { color: '#4e7ca8', initials: 'HA', role: 'Reviewer' },
 };
+// Named individuals only (excludes "Both") — used to drive queue cards and batch columns
 const NAMED_OWNERS = ['Belinda', 'Kate', 'Hope', 'Hannah'];
 
 const PILL_STYLES = {
   "Belinda": { bg: "rgba(133,135,85,0.15)", color: "#505530" },
   "Kate":    { bg: "rgba(81,20,51,0.15)",   color: "#511433" },
-  "Both":    { bg: "rgba(205,128,40,0.15)", color: "#7A4800" },
   "Hope":    { bg: "rgba(196,123,58,0.15)", color: "#7a4000" },
   "Hannah":  { bg: "rgba(78,124,168,0.15)", color: "#234e72" },
   "Revise and Resubmit":       { bg: "rgba(238,92,95,0.12)",  color: "#901818" },
@@ -226,6 +220,7 @@ const PILL_STYLES = {
   "Discuss with Kate":         { bg: "rgba(81,20,51,0.1)",    color: C.plum },
   "Discuss with Hope":         { bg: "rgba(196,123,58,0.1)",  color: "#7a4000" },
   "Discuss with Hannah":       { bg: "rgba(78,124,168,0.1)",  color: "#234e72" },
+  "Discuss with Belinda":       { bg: "rgba(78,124,168,0.1)",  color: "#234e72" },
   "Themes":     { bg: "rgba(81,20,51,0.08)",    color: C.plum },
   "Sub-themes": { bg: "rgba(205,128,40,0.08)",  color: C.amber },
   "Indicators": { bg: "rgba(133,135,85,0.1)",   color: C.olive },
@@ -272,7 +267,7 @@ const ActionPill = ({ action }) => {
 // ─── PERSON QUEUE CARD ────────────────────────────────────────────────────────
 const PersonQueueCard = ({ person, filtered }) => {
   const cfg = PEOPLE[person] || { color: C.muted, initials: person.slice(0, 2).toUpperCase(), role: '' };
-  const queue = filtered.filter(r => Array.isArray(r.actionNeededBy) && r.actionNeededBy.includes(person) && r.requiresAction && r.requiresAction !== 'No Action Required');
+  const queue = filtered.filter(r => r.actionNeededBy.includes(person) && r.requiresAction && r.requiresAction !== 'No Action Required');
   const overdue  = queue.filter(r => isOver(r.deadline)).length;
   const dueWeek  = queue.filter(r => isWeek(r.deadline) && !isOver(r.deadline)).length;
   const noDl     = queue.length - overdue - dueWeek;
@@ -316,11 +311,14 @@ const PersonQueueCard = ({ person, filtered }) => {
   );
 };
 
+// ─── OVERVIEW TAB ─────────────────────────────────────────────────────────────
 // ─── DISCREPANCY ENGINE ───────────────────────────────────────────────────────
 function normName(s) { return (s || '').toLowerCase().trim().replace(/\s+/g, ' '); }
 
 function computeDiscrepancies(notionData, platformData) {
   if (!platformData || !notionData) return { themes: [], subthemes: [], indicators: [], questions: [] };
+  // Themes/Sub-themes/Indicators have a direct Vertical select; questions only get it via a rollup that often returns null.
+  // For structured items: require an in-scope vertical. For questions: keep all in scope until the rollup is fixed.
   const inScope  = r => Array.isArray(r.vertical) && r.vertical.some(v => IN_SCOPE_VERTICALS.includes(v));
   const inScopeQ = r => true; // Questions rollup unfixed → keep all in scope; change to the inScope form once fixed
   const backendThemes     = new Set(platformData.themes.map(t => normName(t.name)));
@@ -379,14 +377,17 @@ const ActionBreakdown = ({ filtered, total }) => {
 
         return (
           <div key={k} style={{ marginBottom: isOpen ? 14 : 8 }}>
+            {/* Clickable header row */}
             <div onClick={() => toggle(k)} style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', userSelect: 'none', marginBottom: 5 }}>
               <span style={{ fontSize: 8, color, transition: 'transform 0.15s', display: 'inline-block', transform: isOpen ? 'rotate(90deg)' : 'none', flexShrink: 0 }}>▶</span>
               <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{k}</span>
               <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10, background: color + '22', color }}>{v}</span>
             </div>
+            {/* Progress bar */}
             <div style={{ height: 4, background: C.cloud, borderRadius: 2, overflow: 'hidden', marginLeft: 16, marginBottom: isOpen ? 8 : 0 }}>
               <div style={{ height: '100%', borderRadius: 2, background: color, width: `${pct}%` }} />
             </div>
+            {/* Expanded item list */}
             {isOpen && (
               <div style={{ marginLeft: 16, background: C.off, borderRadius: 6, border: `1px solid ${C.cloud}`, maxHeight: 320, overflowY: 'auto', overflowX: 'hidden' }}>
                 {visible.map((r, i) => (
@@ -394,7 +395,7 @@ const ActionBreakdown = ({ filtered, total }) => {
                     <span style={{ fontSize: 10, color: C.dim, width: 18, fontWeight: 600, flexShrink: 0 }}>{i + 1}</span>
                     <Pill label={r.db} small />
                     <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: C.forest, fontWeight: 500, lineHeight: 1.4, wordBreak: 'break-word' }}>{r.name}</span>
-                    {r.vertical && r.vertical.length > 0 && <span style={{ fontSize: 10, color: C.dim, flexShrink: 0 }}>{r.vertical.join(', ')}</span>}
+                    {r.vertical.length > 0 && <span style={{ fontSize: 10, color: C.dim, flexShrink: 0 }}>{r.vertical.join(', ')}</span>}
                     {r.deadline && <span style={{ fontSize: 10, color: isOver(r.deadline) ? C.coral : C.dim, fontWeight: isOver(r.deadline) ? 700 : 400, flexShrink: 0, whiteSpace: 'nowrap' }}>{isOver(r.deadline) ? '⚠ ' : ''}{r.deadline}</span>}
                     <a href={r.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.amber, textDecoration: 'none', fontWeight: 700, flexShrink: 0 }}>↗</a>
                   </div>
@@ -416,7 +417,6 @@ const ActionBreakdown = ({ filtered, total }) => {
   );
 };
 
-// ─── OVERVIEW TAB ─────────────────────────────────────────────────────────────
 const Overview = ({ filtered, discrepancies, allData }) => {
   const total = filtered.length;
   const needs = filtered.filter(r => r.requiresAction && r.requiresAction !== "No Action Required").length;
@@ -428,6 +428,7 @@ const Overview = ({ filtered, discrepancies, allData }) => {
   const dims = ["taxonomic", "completeness", "construct", "design"];
   const dL   = ["Taxonomic Thinking", "Completeness", "Construct Understanding", "Design"];
 
+  // Fixed pipeline stages
   const FIXED_STAGES = [
     { key: 'Complete Missing Fields', color: '#F0C71D', owner: 'Belinda' },
     { key: 'Revise and Resubmit',     color: C.coral,   owner: 'Belinda' },
@@ -436,6 +437,7 @@ const Overview = ({ filtered, discrepancies, allData }) => {
     { key: 'Ready to Publish',        color: C.forest,  owner: null },
     { key: 'No Action Required',      color: C.olive,   owner: null },
   ];
+  // Dynamic discuss stages derived from live data
   const discussStages = [...new Set(
     filtered.map(r => r.requiresAction).filter(v => v && v.startsWith('Discuss with'))
   )].sort().map(key => {
@@ -444,6 +446,7 @@ const Overview = ({ filtered, discrepancies, allData }) => {
   });
 
   return <div>
+    {/* Top stats row */}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(130px,1fr))", gap: 12, marginBottom: 16 }}>
       <KPI val={total} label="In scope"    accent={C.forest} />
       <KPI val={needs} label="Needs action" accent={C.amber} />
@@ -451,12 +454,15 @@ const Overview = ({ filtered, discrepancies, allData }) => {
       <KPI val={wk}    label="Due this week" accent="#F0C71D" />
     </div>
 
+    {/* Per-person queue cards */}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 12, marginBottom: 16 }}>
       {NAMED_OWNERS.map(person => <PersonQueueCard key={person} person={person} filtered={filtered} />)}
     </div>
 
+    {/* Pipeline + Quality */}
     <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16, marginBottom: 16 }}>
       <Card title="Action Pipeline">
+        {/* Fixed stages */}
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(105px,1fr))", gap: 3, marginBottom: discussStages.length > 0 ? 10 : 0 }}>
           {FIXED_STAGES.map(({ key, color, owner }) => (
             <div key={key} style={{ padding: "12px 14px", borderRadius: 6, background: color + "18", border: `1px solid ${color}44` }}>
@@ -466,6 +472,7 @@ const Overview = ({ filtered, discrepancies, allData }) => {
             </div>
           ))}
         </div>
+        {/* Discussion stages — shown only when present in data */}
         {discussStages.length > 0 && (
           <div>
             <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: C.dim, textTransform: 'uppercase', marginBottom: 6 }}>Discussions</div>
@@ -503,7 +510,7 @@ const Overview = ({ filtered, discrepancies, allData }) => {
           return dueItems.length
             ? <div style={{ maxHeight: 340, overflowY: "auto" }}>{dueItems.map(r => (
               <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: `1px solid ${C.cloud}` }}>
-                <Pill label={r.db} small />{r.actionNeededBy && r.actionNeededBy.length > 0 && <Pill label={r.actionNeededBy.join(', ')} small />}
+                <Pill label={r.db} small />{r.actionNeededBy.map(a => <Pill key={a} label={a} small />)}
                 {isOver(r.deadline) && <span style={{ fontSize: 9, fontWeight: 800, background: C.coral + "22", color: C.coral, padding: "2px 5px", borderRadius: 2, whiteSpace: "nowrap" }}>OVERDUE</span>}
                 <span style={{ fontSize: 13, fontWeight: 600, flex: 1 }}>{r.name}</span>
                 <span style={{ fontSize: 11, color: isOver(r.deadline) ? C.coral : C.dim, whiteSpace: "nowrap" }}>{r.deadline}</span>
@@ -549,7 +556,7 @@ const Overview = ({ filtered, discrepancies, allData }) => {
 // ─── TODAY TAB ────────────────────────────────────────────────────────────────
 const Today = ({ filtered, batchSize }) => {
   const buildBatch = (owner) => filtered
-    .filter(r => Array.isArray(r.actionNeededBy) && r.actionNeededBy.includes(owner) && r.requiresAction && r.requiresAction !== "No Action Required" && r.requiresAction !== "Ready to Publish")
+    .filter(r => r.actionNeededBy.includes(owner) && r.requiresAction && r.requiresAction !== "No Action Required" && r.requiresAction !== "Ready to Publish")
     .sort((a, b) => {
       if (isOver(a.deadline) !== isOver(b.deadline)) return isOver(a.deadline) ? -1 : 1;
       if (isWeek(a.deadline) !== isWeek(b.deadline)) return isWeek(a.deadline) ? -1 : 1;
@@ -558,8 +565,9 @@ const Today = ({ filtered, batchSize }) => {
     })
     .slice(0, batchSize);
 
+  // Show a column for every owner who has at least one actionable item
   const activeOwners = NAMED_OWNERS.filter(o =>
-    filtered.some(r => Array.isArray(r.actionNeededBy) && r.actionNeededBy.includes(o) && r.requiresAction && r.requiresAction !== "No Action Required")
+    filtered.some(r => r.actionNeededBy.includes(o) && r.requiresAction && r.requiresAction !== "No Action Required")
   );
 
   const BatchItem = ({ r, i, owner }) => {
@@ -572,7 +580,7 @@ const Today = ({ filtered, batchSize }) => {
           <div style={{ fontSize: 11, color: C.muted, marginTop: 4, display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
             <Pill label={r.db} small />
             <Pill label={r.requiresAction} small />
-            {r.vertical && r.vertical.length > 0 && <Pill label={r.vertical.join(', ')} small />}
+            {(r.vertical || []).map(v => <Pill key={v} label={v} small />)}
             {r.deadline && <span style={{ color: isOver(r.deadline) ? C.coral : C.dim, fontWeight: isOver(r.deadline) ? 700 : 400 }}>{isOver(r.deadline) ? '⚠ ' : ''}{r.deadline}</span>}
           </div>
           {r.developedBy && <div style={{ fontSize: 10, color: C.dim, marginTop: 3 }}>Developed by: <span style={{ fontWeight: 600 }}>{r.developedBy}</span></div>}
@@ -593,7 +601,7 @@ const Today = ({ filtered, batchSize }) => {
       {activeOwners.map(owner => {
         const cfg = PEOPLE[owner] || { color: C.muted };
         const batch = buildBatch(owner);
-        const qTotal = filtered.filter(r => Array.isArray(r.actionNeededBy) && r.actionNeededBy.includes(owner) && r.requiresAction && r.requiresAction !== "No Action Required").length;
+        const qTotal = filtered.filter(r => r.actionNeededBy.includes(owner) && r.requiresAction && r.requiresAction !== "No Action Required").length;
         return (
           <Card key={owner} title={
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -627,6 +635,7 @@ const Pipeline = ({ filtered }) => {
     const isDiscuss = s.startsWith('Discuss with');
     const stageColor = isDiscuss ? (PEOPLE[s.replace('Discuss with ', '')] || {}).color || C.muted : C.amber;
 
+    // Decide which attribution columns to show for this stage's items
     const showDeveloped = items.some(r => r.developedBy);
     const showApproved  = items.some(r => r.approvedBy);
 
@@ -648,8 +657,8 @@ const Pipeline = ({ filtered }) => {
           <tbody>{items.map(r => <tr key={r.id}>
             <td style={{ ...tdStyle, fontWeight: 600, maxWidth: 320 }}>{r.name}</td>
             <td style={tdStyle}><Pill label={r.db} small /></td>
-            <td style={tdStyle}>{r.actionNeededBy && r.actionNeededBy.length > 0 ? <Pill label={r.actionNeededBy.join(', ')} small /> : '—'}</td>
-            <td style={{ ...tdStyle, fontSize: 11 }}>{r.vertical && r.vertical.length > 0 ? r.vertical.join(', ') : "—"}</td>
+            <td style={tdStyle}>{r.actionNeededBy.length ? r.actionNeededBy.map(a => <Pill key={a} label={a} small />) : '—'}</td>
+            <td style={{ ...tdStyle, fontSize: 11 }}>{r.vertical.length ? r.vertical.join(', ') : "—"}</td>
             <td style={{ ...tdStyle, color: isOver(r.deadline) ? C.coral : "inherit", fontWeight: isOver(r.deadline) ? 700 : 400, whiteSpace: 'nowrap' }}>{r.deadline || "—"}</td>
             {showDeveloped && <td style={{ ...tdStyle, fontSize: 11, color: C.muted }}>{r.developedBy || "—"}</td>}
             {showApproved  && <td style={{ ...tdStyle, fontSize: 11, color: C.muted }}>{r.approvedBy  || "—"}</td>}
@@ -682,7 +691,7 @@ const Quality = ({ filtered }) => {
                     <a href={r.url} target="_blank" rel="noreferrer" style={{ color: C.forest, textDecoration: "none" }}>{r.name}</a>
                   </td>
                   <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.cloud}` }}><Pill label={r.db} small /></td>
-                  <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.cloud}`, fontSize: 11 }}>{r.vertical && r.vertical.length > 0 ? r.vertical.join(', ') : "—"}</td>
+                  <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.cloud}`, fontSize: 11 }}>{r.vertical.length ? r.vertical.join(', ') : "—"}</td>
                   <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.cloud}` }}>{ov !== null ? <Stars score={ov} /> : "—"}</td>
                   {dims.map(d => <td key={d} style={{ padding: "9px 12px", borderBottom: `1px solid ${C.cloud}` }}>{parseR(r[d]) !== null ? <Stars score={parseR(r[d])} /> : <span style={{ fontSize: 10, color: C.dim }}>—</span>}</td>)}
                   <td style={{ padding: "9px 12px", borderBottom: `1px solid ${C.cloud}`, fontSize: 11, color: C.muted, whiteSpace: 'nowrap' }}>{r.developedBy || "—"}</td>
@@ -724,6 +733,7 @@ const Quality = ({ filtered }) => {
 };
 
 // ─── HIERARCHY TAB ────────────────────────────────────────────────────────────
+// Sub-theme row — expandable, shows indicators + questions inside
 const HierarchySub = ({ sub, indicators, questions }) => {
   const [open, setOpen] = useState(false);
   const hasAction = sub.requiresAction && sub.requiresAction !== 'No Action Required';
@@ -737,14 +747,15 @@ const HierarchySub = ({ sub, indicators, questions }) => {
         {hasAction
           ? <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 2, background: 'rgba(238,92,95,0.25)', color: '#ffa0a2', flexShrink: 0, whiteSpace: 'nowrap' }}>⚠ {sub.requiresAction}</span>
           : <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 2, background: 'rgba(133,135,85,0.2)', color: '#c8d89a', flexShrink: 0 }}>✓</span>}
-        {sub.actionNeededBy && sub.actionNeededBy.length > 0 && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 2, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{sub.actionNeededBy.join(', ')}</span>}
+        {sub.actionNeededBy.length > 0 && <span style={{ fontSize: 10, padding: '1px 5px', borderRadius: 2, background: 'rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.5)', flexShrink: 0 }}>{sub.actionNeededBy.join(', ')}</span>}
         <a href={sub.url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', textDecoration: 'none', flexShrink: 0 }}>↗</a>
       </div>
       {open && (
         <div style={{ padding: '6px 12px 10px 28px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+          {/* Meta row */}
           <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 8, paddingBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
             {sub.status    && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Status: {sub.status}</span>}
-            {sub.vertical && sub.vertical.length > 0 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Vertical: {sub.vertical.join(', ')}</span>}
+            {sub.vertical.length > 0 && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Vertical: {sub.vertical.join(', ')}</span>}
             {sub.taxonomic   != null && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Tax: {sub.taxonomic}/5</span>}
             {sub.completeness!= null && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Complete: {sub.completeness}/5</span>}
             {sub.construct   != null && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Construct: {sub.construct}/5</span>}
@@ -752,6 +763,7 @@ const HierarchySub = ({ sub, indicators, questions }) => {
             {sub.approvedBy  && <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>Approved by: {sub.approvedBy}</span>}
           </div>
           {sub.notes && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', fontStyle: 'italic', lineHeight: 1.5, marginBottom: 10 }}>{sub.notes}</div>}
+          {/* Indicators */}
           {indicators.length > 0 && (
             <div style={{ marginBottom: 8 }}>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: 4 }}>Indicators ({indicators.length})</div>
@@ -767,6 +779,7 @@ const HierarchySub = ({ sub, indicators, questions }) => {
               </div>
             </div>
           )}
+          {/* Questions */}
           {questions.length > 0 && (
             <div>
               <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', color: 'rgba(255,255,255,0.3)', textTransform: 'uppercase', marginBottom: 4 }}>Questions ({questions.length})</div>
@@ -790,6 +803,7 @@ const HierarchySub = ({ sub, indicators, questions }) => {
   );
 };
 
+// Theme row — expandable, contains sub-themes
 const HierarchyTheme = ({ theme, subthemes, indsBySubtheme, qsBySubtheme }) => {
   const [open, setOpen] = useState(false);
   const actionCount = subthemes.filter(s => s.requiresAction && s.requiresAction !== 'No Action Required').length;
@@ -801,7 +815,7 @@ const HierarchyTheme = ({ theme, subthemes, indsBySubtheme, qsBySubtheme }) => {
       <div onClick={() => setOpen(o => !o)} style={{ padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', userSelect: 'none' }}>
         <span style={{ fontSize: 9, transition: 'transform 0.15s', transform: open ? 'rotate(90deg)' : 'none', color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>▶</span>
         <span style={{ fontSize: 14, fontWeight: 700, flex: 1 }}>{theme.name}</span>
-        {theme.vertical && theme.vertical.length > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 2, background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>{theme.vertical.join(', ')}</span>}
+        {theme.vertical.length > 0 && <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 2, background: 'rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.6)', flexShrink: 0 }}>{theme.vertical.join(', ')}</span>}
         <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.4)', flexShrink: 0 }}>{subthemes.length} sub · {indTotal}i · {qTotal}q</span>
         {actionCount > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 2, background: 'rgba(238,92,95,0.25)', color: '#f8a0a2', flexShrink: 0 }}>⚠ {actionCount}</span>}
         {theme.status && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 2, background: 'rgba(133,135,85,0.25)', color: '#c8d89a', flexShrink: 0 }}>{theme.status}</span>}
@@ -826,6 +840,7 @@ const Hierarchy = ({ data }) => {
   const indicators = data.filter(r => r.db === 'Indicators');
   const questions  = data.filter(r => r.db === 'Questions');
 
+  // Build lookup maps from Notion relation URLs
   const subsByTheme = new Map();
   subthemes.forEach(s => {
     if (!s.themeId) return;
@@ -847,6 +862,7 @@ const Hierarchy = ({ data }) => {
     qsBySubtheme.get(q.subthemeId).push(q);
   });
 
+  // Sub-themes with no matching theme in current data
   const linkedSubIds = new Set(subthemes.filter(s => s.themeId && themes.some(t => t.id === s.themeId)).map(s => s.id));
   const orphanSubs   = subthemes.filter(s => !linkedSubIds.has(s.id));
 
@@ -927,6 +943,7 @@ const Search = ({ data }) => {
 
   return (
     <div>
+      {/* ── Search bar ── */}
       <div style={{ background: C.white, borderRadius: 8, border: `1px solid ${C.cloud}`, padding: "20px 24px", marginBottom: 16 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: C.muted, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 10 }}>Search Knowledge Base — {data.length.toLocaleString()} items across 4 databases</div>
         <div style={{ display: "flex", gap: 10, marginBottom: 14 }}>
@@ -942,6 +959,7 @@ const Search = ({ data }) => {
         </div>
       </div>
 
+      {/* ── Empty state ── */}
       {results === null && (
         <div style={{ textAlign: "center", padding: "56px 0", color: C.dim }}>
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Type to search across Themes, Sub-themes, Indicators and Questions</div>
@@ -949,6 +967,7 @@ const Search = ({ data }) => {
         </div>
       )}
 
+      {/* ── No results ── */}
       {results !== null && results.length === 0 && (
         <div style={{ textAlign: "center", padding: "48px 0", color: C.dim }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No results for "{submitted}"</div>
@@ -956,6 +975,7 @@ const Search = ({ data }) => {
         </div>
       )}
 
+      {/* ── Results ── */}
       {results !== null && results.length > 0 && (
         <div>
           <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 14, flexWrap: "wrap" }}>
@@ -974,14 +994,14 @@ const Search = ({ data }) => {
                 <div style={{ padding: "12px 16px" }}>
                   <div style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 7 }}>
                     <span style={{ fontSize: 10, fontWeight: 800, padding: "2px 7px", borderRadius: 3, background: col + "18", color: col, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>{r.db}</span>
-                    {r.vertical && r.vertical.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 3, background: C.cloud, color: C.muted, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>{r.vertical.join(', ')}</span>}
+                    {r.vertical.length > 0 && <span style={{ fontSize: 10, fontWeight: 600, padding: "2px 7px", borderRadius: 3, background: C.cloud, color: C.muted, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>{r.vertical.join(', ')}</span>}
                     <span style={{ fontSize: 14, fontWeight: 700, color: C.forest, lineHeight: 1.4, flex: 1 }}>{r.name}</span>
                     <a href={r.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.amber, textDecoration: "none", fontWeight: 700, whiteSpace: "nowrap", flexShrink: 0, marginTop: 2 }}>Open in Notion ↗</a>
                   </div>
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
                     {r.status && <span style={{ fontSize: 11, color: C.muted }}>{r.status}</span>}
                     {hasAction && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: C.coral + "18", color: C.coral }}>{r.requiresAction}</span>}
-                    {r.actionNeededBy && r.actionNeededBy.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: r.actionNeededBy.includes("Kate") ? C.amber + "22" : C.olive + "22", color: r.actionNeededBy.includes("Kate") ? C.amber : C.olive }}>{r.actionNeededBy.join(', ')}</span>}
+                    {r.actionNeededBy.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 2, background: r.actionNeededBy.includes("Kate") ? C.amber + "22" : C.olive + "22", color: r.actionNeededBy.includes("Kate") ? C.amber : C.olive }}>{r.actionNeededBy.join(', ')}</span>}
                     {r.deadline && <span style={{ fontSize: 10, color: isOver(r.deadline) ? C.coral : C.dim, fontWeight: isOver(r.deadline) ? 700 : 400 }}>{isOver(r.deadline) ? "⚠ Overdue: " : "Due: "}{r.deadline}</span>}
                   </div>
                   {r.notes && <div style={{ marginTop: 8, fontSize: 12, color: C.muted, lineHeight: 1.5, paddingTop: 8, borderTop: `1px solid ${C.cloud}` }}>{r.notes.length > 220 ? r.notes.slice(0, 220) + "…" : r.notes}</div>}
@@ -1086,6 +1106,12 @@ const PlatformTheme = ({ theme }) => {
   </div>;
 };
 
+const PlatformCatalogueRow = ({ item, cols }) => (
+  <div style={{ display: "grid", gridTemplateColumns: cols, gap: 12, padding: "9px 12px", borderBottom: `1px solid ${C.cloud}`, alignItems: "center" }}>
+    {item}
+  </div>
+);
+
 const Platform = ({ data }) => {
   const [catalogueTab, setCatalogueTab] = useState("standards");
 
@@ -1102,6 +1128,7 @@ const Platform = ({ data }) => {
   ];
 
   return <div>
+    {/* Summary row */}
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(120px,1fr))", gap: 12, marginBottom: 20 }}>
       {[
         { val: summary?.themes ?? themes.length, label: "Themes", color: C.plum },
@@ -1119,6 +1146,7 @@ const Platform = ({ data }) => {
       )}
     </div>
 
+    {/* Theme tree */}
     <div style={{ marginBottom: 20 }}>
       <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: "0.18em", color: C.dim, textTransform: "uppercase", marginBottom: 10 }}>Theme Taxonomy</div>
       {themes.length === 0
@@ -1126,6 +1154,7 @@ const Platform = ({ data }) => {
         : themes.map(t => <PlatformTheme key={t._id} theme={t} />)}
     </div>
 
+    {/* Catalogue tabs: Standards / SDGs / ESG */}
     <div style={{ background: C.white, borderRadius: 6, overflow: "hidden" }}>
       <div style={{ display: "flex", borderBottom: `1px solid ${C.cloud}`, padding: "0 16px" }}>
         {catTabs.map(ct => <button key={ct.key} onClick={() => setCatalogueTab(ct.key)} style={{ padding: "10px 14px", border: "none", background: "transparent", fontFamily: "inherit", fontSize: 11, fontWeight: 700, letterSpacing: "0.1em", textTransform: "uppercase", cursor: "pointer", color: catalogueTab === ct.key ? C.plum : C.muted, borderBottom: catalogueTab === ct.key ? `2px solid ${C.plum}` : "2px solid transparent", marginBottom: -1 }}>
@@ -1195,9 +1224,10 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
   );
 
   const inScope  = r => Array.isArray(r.vertical) && r.vertical.some(v => IN_SCOPE_VERTICALS.includes(v));
-  const inScopeQ = r => true;
+  const inScopeQ = r => true; // Questions rollup unfixed → keep all in scope; change to the inScope form once fixed
   const { themes, subthemes, indicators, questions } = discrepancies;
 
+  // Totals: structured items scoped to in-scope verticals; questions kept broad until the rollup field is fixed
   const totals = {
     Themes:       allData.filter(r => r.db === 'Themes'     && inScope(r)).length,
     'Sub-themes': allData.filter(r => r.db === 'Sub-themes' && inScope(r)).length,
@@ -1292,7 +1322,7 @@ const Discrepancies = ({ discrepancies, allData, platformData }) => {
                 <span style={{ fontSize: 11, fontWeight: 700, color: dbColors[r._db] || C.muted }}>{r._db}</span>
                 <span style={{ fontSize: 13, fontWeight: 500, color: C.forest, paddingRight: 16 }}>{r.name || '—'}</span>
                 <span style={{ fontSize: 11, color: C.muted }}>{r.status || '—'}</span>
-                <span style={{ fontSize: 11, color: C.dim }}>{r.vertical && r.vertical.length > 0 ? r.vertical.join(', ') : '—'}</span>
+                <span style={{ fontSize: 11, color: C.dim }}>{r.vertical.length ? r.vertical.join(', ') : '—'}</span>
                 <a href={r.url} target="_blank" rel="noreferrer" style={{ fontSize: 11, color: C.amber, textDecoration: "none", fontWeight: 600 }}>View ↗</a>
               </div>
             ))}
@@ -1313,7 +1343,7 @@ function App() {
   const [oFilter, setOFilter] = useState("ALL");
   const [batchSize, setBatchSize] = useState(10);
   const [syncMsg, setSyncMsg] = useState("Loading…");
-  const [allData, setAllData] = useState(SEED_DATA);
+  const [allData, setAllData] = useState(normItems(SEED_DATA));
   const [platformData, setPlatformData] = useState(null);
   const [dbCounts, setDbCounts] = useState(null);
   const [syncing, setSyncing] = useState(false);
@@ -1324,14 +1354,14 @@ function App() {
     fetch("/.netlify/functions/notion-data")
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => {
-        const items = Array.isArray(data) ? data : SEED_DATA;
+        const items = normItems(Array.isArray(data) ? data : SEED_DATA);
         setAllData(items);
         const counts = items.reduce((acc, item) => { acc[item.db] = (acc[item.db] || 0) + 1; return acc; }, {});
         setDbCounts(counts);
         setSyncMsg(`Live · ${items.length} QA items · ${new Date().toLocaleTimeString()}`);
       })
       .catch(() => {
-        setAllData(SEED_DATA);
+        setAllData(normItems(SEED_DATA));
         setDbCounts(null);
         setSyncMsg("Demo mode · Notion function unavailable");
       })
@@ -1346,27 +1376,23 @@ function App() {
   useEffect(() => { fetchData(); }, []);
   const discrepancies = useMemo(() => computeDiscrepancies(allData, platformData), [allData, platformData]);
 
+  // Derive owner options: always include NAMED_OWNERS as a baseline,
+  // plus anyone else found in live data (e.g. new people added in Notion)
   const ownerOptions = useMemo(() => {
-    const fromData = allData.flatMap(r => Array.isArray(r.actionNeededBy) ? r.actionNeededBy : []).filter(Boolean);
+    const fromData = allData.flatMap(r => r.actionNeededBy).filter(Boolean);
     const merged = [...new Set([...NAMED_OWNERS, ...fromData])].sort();
     return ['ALL', ...merged];
   }, [allData]);
 
+  // Reset oFilter if the current value is no longer in the live data options
   React.useEffect(() => {
     if (oFilter !== 'ALL' && !ownerOptions.includes(oFilter)) setOFilter('ALL');
   }, [ownerOptions]);
 
   const filtered = allData.filter(r =>
     (vFilter === "ALL" || (Array.isArray(r.vertical) && r.vertical.includes(vFilter))) &&
-    (oFilter === "ALL" || (Array.isArray(r.actionNeededBy) && r.actionNeededBy.includes(oFilter))) &&
+    (oFilter === "ALL" || r.actionNeededBy.includes(oFilter)) &&
     (workMode === "ALL" || r.db === workMode)
-  );
-
-  // Hierarchy is a structural Theme→Sub-theme→Indicator→Question tree — it only
-  // respects the Vertical filter, not Owner or Work Mode (which would strip out
-  // the Themes/Sub-themes needed to render the tree at all).
-  const filteredForHierarchy = allData.filter(r =>
-    vFilter === "ALL" || (Array.isArray(r.vertical) && r.vertical.includes(vFilter))
   );
 
   const TABS = ["overview", "today", "pipeline", "quality", "hierarchy", "search", "velocity", "platform", "discrepancies"];
@@ -1379,6 +1405,7 @@ function App() {
 
   return (
     <div style={{ fontFamily: "'Segoe UI', system-ui, sans-serif", background: C.off, minHeight: "100vh" }}>
+      {/* HEADER */}
       <div style={{ background: C.forest, padding: "20px 32px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 16 }}>
         <div>
           <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.3em", color: C.amber, textTransform: "uppercase", marginBottom: 4 }}>ConnectGo · Knowledge Base</div>
@@ -1426,6 +1453,7 @@ function App() {
         </div>
       </div>
 
+      {/* MODE BAR */}
       <div style={{ background: C.plum, padding: "0 32px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(255,255,255,0.08)", flexWrap: "wrap" }}>
         <div style={{ display: "flex" }}>
           {TABS.map(t => (
@@ -1440,6 +1468,7 @@ function App() {
         </div>
       </div>
 
+      {/* WORK MODE BANNER */}
       {workMode !== "ALL" && (
         <div style={{ background: C.amber, padding: "10px 32px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div>
@@ -1450,18 +1479,20 @@ function App() {
         </div>
       )}
 
+      {/* CONTENT */}
       <div style={{ padding: "24px 32px", maxWidth: 1500, margin: "0 auto" }}>
         {tab === "overview" && <Overview filtered={filtered} discrepancies={discrepancies} allData={allData} />}
         {tab === "today" && <Today filtered={filtered} batchSize={batchSize} />}
         {tab === "pipeline" && <Pipeline filtered={filtered} />}
         {tab === "quality" && <Quality filtered={filtered} />}
-        {tab === "hierarchy" && <Hierarchy data={filteredForHierarchy} />}
+        {tab === "hierarchy" && <Hierarchy data={filtered} />}
         {tab === "search" && <Search data={filtered} />}
         {tab === "velocity" && <Velocity data={filtered} />}
         {tab === "platform" && <Platform data={platformData} />}
         {tab === "discrepancies" && <Discrepancies discrepancies={discrepancies} allData={allData} platformData={platformData} />}
       </div>
 
+      {/* FOOTER */}
       <div style={{ padding: "12px 32px", fontSize: 11, color: "rgba(255,255,255,0.3)", background: C.forest, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <span><strong style={{ color: "rgba(255,255,255,0.55)" }}>CONNECT GO</strong> · Knowledge Base Quality Dashboard · v2.1</span>
         <a href="https://app.notion.com/p/38060bfb014e8160ad26d9f2f200f464" target="_blank" rel="noreferrer" style={{ color: C.amber, textDecoration: "none" }}>KB Quality Review — Rating Scale</a>

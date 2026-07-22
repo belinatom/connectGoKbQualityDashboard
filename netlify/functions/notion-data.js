@@ -16,6 +16,14 @@ function notionPageUrl(id) {
   return `https://notion.so/${id.replace(/-/g, '')}`;
 }
 
+// Relation URLs come in inconsistent formats (/p/ vs bare, with/without dashes).
+// Reduce any URL or id to its 32-hex-char core so joins across DBs match reliably.
+function bareId(u) {
+  if (!u) return '';
+  const m = String(u).replace(/-/g, '').match(/[0-9a-f]{32}/i);
+  return m ? m[0].toLowerCase() : String(u);
+}
+
 function extractSelect(prop) {
   return prop?.select?.name ?? null;
 }
@@ -65,17 +73,21 @@ function extractFormula(prop) {
   return null;
 }
 
-// Questions don't have their own Vertical multi-select — it's a formula field
-// (still named "Vertical ", trailing space) that concatenates the tags rolled up
-// from the linked Subtheme's multi-select, e.g. "RfC, C4C". Split it back into
-// an array so Questions match the same array shape as Themes/Sub-themes/Indicators.
-function extractFormulaVerticalArray(prop) {
-  const raw = extractFormula(prop);
-  if (!raw) return [];
-  return raw
-    .split(/,|&|\band\b/i)
-    .map(v => v.trim())
-    .filter(Boolean);
+// Vertical on Sub-themes ("Verticals ") and Indicators ("Vertical") is a rollup
+// that pulls the parent Theme's multi-select. A rollup of a multi-select comes
+// back as rollup.array, each element itself a multi_select. Flatten to names.
+function extractRollupMultiSelect(prop) {
+  const arr = prop?.rollup?.array;
+  if (!Array.isArray(arr)) return [];
+  const names = [];
+  for (const item of arr) {
+    if (item?.type === 'multi_select' && Array.isArray(item.multi_select)) {
+      names.push(...item.multi_select.map(o => o.name));
+    } else if (item?.type === 'select' && item.select?.name) {
+      names.push(item.select.name);
+    }
+  }
+  return [...new Set(names)];
 }
 
 // People field — returns comma-joined display names, or null
@@ -151,7 +163,8 @@ function mapPage(page, dbName) {
       id, db: 'Sub-themes', url,
       name: extractTitle(props['Sub-theme name']),
       status: extractStatus(props['Subtheme Status']),
-      vertical: extractMultiSelect(props['Vertical']),
+      // Rollup returns <omitted /> via the API — resolved from the linked Theme in post-pass.
+      vertical: [],
       approvedBy: extractPeopleNames(props['Approved By']),
       developedBy: null,
       ...commonQaFields(props),
@@ -166,7 +179,8 @@ function mapPage(page, dbName) {
       id, db: 'Indicators', url,
       name: extractTitle(props['Indicator statement']),
       status: extractStatus(props['Status']),
-      vertical: extractMultiSelect(props['Vertical']),
+      // Rollup returns <omitted /> — resolved from the linked Subtheme in post-pass.
+      vertical: [],
       approvedBy: null,
       developedBy: extractPeopleNames(props['Developed By']),
       ...commonQaFields(props),
@@ -177,14 +191,15 @@ function mapPage(page, dbName) {
   }
 
   if (dbName === 'Questions') {
-    // Vertical is a formula field named "Vertical " (trailing space) that concatenates
-    // the multi-select tags rolled up from the linked Subtheme — parsed back into an array.
+    // Vertical is not stored on the question — Notion can't roll it up from the
+    // subtheme (rollup-of-a-rollup is disallowed). Left empty here and filled from
+    // the linked subtheme's verticals in a post-pass after all DBs are mapped.
     return {
       id, db: 'Questions', url,
       name: extractTitle(props['Question Text']),
       // Question Status is a select (not a status widget) — use extractSelect
       status: extractSelect(props['Question Status']),
-      vertical: extractFormulaVerticalArray(props['Vertical ']),
+      vertical: [],
       approvedBy: null,
       developedBy: null,
       ...commonQaFields(props),
@@ -229,6 +244,29 @@ exports.handler = async function (event) {
       for (const page of pages) {
         const mapped = mapPage(page, dbName);
         if (mapped) allItems.push(mapped);
+      }
+    }
+
+    // Verticals live only on Themes (a reliable multi-select). Everything below
+    // derives by walking relations, because the rollups return <omitted /> via the
+    // API and the direct Indicator→Theme relation points at inaccessible pages.
+    // Chain: Theme.vertical → Sub-theme (via Theme database) → Indicator/Question (via Subtheme).
+    // All lookups are keyed on bareId() so mismatched URL formats still join.
+    const themeVert = {};      // bareId(theme)    → verticals[]
+    const subVert = {};        // bareId(subtheme) → verticals[]
+
+    for (const item of allItems) {
+      if (item.db === 'Themes') themeVert[bareId(item.id)] = item.vertical || [];
+    }
+    for (const item of allItems) {
+      if (item.db === 'Sub-themes') {
+        item.vertical = themeVert[bareId(item.themeId)] || [];
+        subVert[bareId(item.id)] = item.vertical;
+      }
+    }
+    for (const item of allItems) {
+      if (item.db === 'Indicators' || item.db === 'Questions') {
+        item.vertical = subVert[bareId(item.subthemeId)] || [];
       }
     }
 
