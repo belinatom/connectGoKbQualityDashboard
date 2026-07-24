@@ -1351,7 +1351,7 @@ function App() {
 
   const fetchData = () => {
     setSyncing(true);
-    fetch("/.netlify/functions/notion-data")
+    fetch("/.netlify/functions/notion-data", { cache: "no-store" })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => {
         const items = normItems(Array.isArray(data) ? data : SEED_DATA);
@@ -1367,7 +1367,7 @@ function App() {
       })
       .finally(() => setSyncing(false));
 
-    fetch("/.netlify/functions/backend-data")
+    fetch("/.netlify/functions/backend-data", { cache: "no-store" })
       .then(r => r.ok ? r.json() : Promise.reject(r.status))
       .then(data => setPlatformData(data))
       .catch(() => setPlatformData(null));
